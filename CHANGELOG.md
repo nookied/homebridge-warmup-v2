@@ -7,10 +7,11 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
-## [Unreleased]
+## [3.0.1] — 2026-05-05
 
-Maintenance pass after the v3.0 GraphQL release. Includes bug fixes, cache
+Maintenance pass after the v3.0 GraphQL release. Bug fixes, cache
 correctness improvements, dependency-lock cleanup, and documentation refresh.
+No new features; no breaking changes; `config.json` is unchanged.
 
 ### Fixed
 - **Platform instance isolation.** `src/index.js` no longer keeps
