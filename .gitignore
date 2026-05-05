@@ -13,3 +13,7 @@ test/hbConfig/.uix-secrets
 /test/hbConfig/persist
 test/hbConfig/config.json
 /test/hbConfig/backups
+
+# macOS Finder droppings
+.DS_Store
+**/.DS_Store

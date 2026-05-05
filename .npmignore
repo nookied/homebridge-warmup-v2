@@ -19,3 +19,7 @@ AGENTS.md
 # Source-only build artefacts
 *.log
 *.tgz
+
+# macOS Finder droppings
+.DS_Store
+**/.DS_Store
