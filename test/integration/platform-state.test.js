@@ -136,12 +136,17 @@ function room(roomId, roomName) {
 describe('warmup4ie dynamic platform', () => {
   let PlatformCtor;
   let MockWarmup4IE;
+  let MockFakeGato;
+  let fakeGatoCtor;
   let clients;
+  let historyServices;
   let api;
 
   function instantiatePlugin() {
     jest.resetModules();
     clients = [];
+    historyServices = [];
+
     jest.doMock('../../src/lib/warmup4ie', () => {
       MockWarmup4IE = jest.fn(function (options, callback) {
         this.options = options;
@@ -164,6 +169,19 @@ describe('warmup4ie dynamic platform', () => {
       return { Warmup4IE: MockWarmup4IE };
     });
 
+    // Mock fakegato — its real implementation touches disk and bundles
+    // EveHomeKitTypes. We only care that the constructor is called and
+    // addEntry runs per pushRoomState.
+    fakeGatoCtor = jest.fn(function FakeGatoHistoryService(type, accessory, options) {
+      this.type = type;
+      this.accessory = accessory;
+      this.options = options;
+      this.addEntry = jest.fn();
+      historyServices.push(this);
+    });
+    MockFakeGato = jest.fn(() => fakeGatoCtor);
+    jest.doMock('fakegato-history', () => MockFakeGato);
+
     api = fakeHomebridge();
     const plugin = require('../../src/index.js');
     plugin(api);
@@ -171,7 +189,10 @@ describe('warmup4ie dynamic platform', () => {
   }
 
   beforeEach(() => instantiatePlugin());
-  afterEach(() => jest.dontMock('../../src/lib/warmup4ie'));
+  afterEach(() => {
+    jest.dontMock('../../src/lib/warmup4ie');
+    jest.dontMock('fakegato-history');
+  });
 
   test('missing credentials: no Warmup client, no poll timer, cached accessories preserved', () => {
     const platform = new PlatformCtor(fakeLog(), { name: 'WarmUP' }, api);
@@ -304,6 +325,43 @@ describe('warmup4ie dynamic platform', () => {
 
     platformOne.shutdown();
     platformTwo.shutdown();
+  });
+
+  test('fakegato history: a service is attached per accessory and addEntry fires per poll', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // One accessory → one history service constructed with type 'thermo'
+    expect(historyServices).toHaveLength(1);
+    expect(historyServices[0].type).toBe('thermo');
+    expect(historyServices[0].options).toMatchObject({ disableTimer: true, storage: 'fs' });
+
+    // Initial pushRoomState during attachAccessoryServices recorded one entry
+    expect(historyServices[0].addEntry).toHaveBeenCalledTimes(1);
+    const firstEntry = historyServices[0].addEntry.mock.calls[0][0];
+    expect(firstEntry).toMatchObject({
+      currentTemp: 20,    // 200/10
+      setTemp: 21,        // 210/10
+      valvePosition: 100  // currentTemp < targetTemp → heating, so 100
+    });
+    expect(typeof firstEntry.time).toBe('number');
+
+    // Drive a poll cycle and verify another addEntry call
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(historyServices[0].addEntry).toHaveBeenCalledTimes(2);
+
+    platform.shutdown();
+    jest.useRealTimers();
   });
 
   test('shutdown: clears the poll timer and pending debouncers', async () => {

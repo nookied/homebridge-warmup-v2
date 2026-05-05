@@ -30,6 +30,7 @@ const MIN_DURATION_MINUTES = 5;
 const MAX_DURATION_MINUTES = 1440;
 
 let Service, Characteristic, HapStatusError, HAPStatus, PlatformAccessoryCtor, uuid;
+let FakeGatoHistoryService;
 
 module.exports = function (homebridge) {
   Service = homebridge.hap.Service;
@@ -38,6 +39,18 @@ module.exports = function (homebridge) {
   HAPStatus = homebridge.hap.HAPStatus;
   PlatformAccessoryCtor = homebridge.platformAccessory;
   uuid = homebridge.hap.uuid;
+
+  // fakegato-history is initialised once per Homebridge process — the
+  // module export is `(homebridge) => FakeGatoHistoryService` (a class
+  // bound to the homebridge instance's HAP types). Loading is wrapped
+  // in try/catch so a hypothetical fakegato breakage doesn't kill the
+  // plugin — temperature/heating-state graphs are nice-to-have.
+  try {
+    FakeGatoHistoryService = require('fakegato-history')(homebridge);
+  } catch (ex) {
+    FakeGatoHistoryService = null;
+    debug('fakegato-history unavailable: %s', ex.message);
+  }
 
   // Fourth arg `true` registers as a dynamic platform.
   homebridge.registerPlatform(PLUGIN_NAME, PLATFORM_NAME, warmup4iePlatform, true);
@@ -231,6 +244,24 @@ function attachAccessoryServices(platform, accessory, room) {
   thermo.getCharacteristic(Characteristic.CurrentTemperature)
     .setProps({ minValue: -100, maxValue: 100 });
 
+  // Eve / fakegato history graphs (Roadmap M5).
+  // The 'thermo' history type records currentTemp + setTemp + valvePosition
+  // every poll; Eve.app renders the result. We disable fakegato's auto-timer
+  // and call addEntry from pushRoomState ourselves, so history aligns with
+  // actual data freshness rather than running on a separate clock.
+  // The wrapper instance is in-memory only (re-created per restart) but
+  // fakegato persists the history JSON to disk independently — see
+  // `~/.homebridge/persist/history_*.json`.
+  if (FakeGatoHistoryService && !accessory.historyService) {
+    accessory.historyService = new FakeGatoHistoryService('thermo', accessory, {
+      storage: 'fs',
+      path: platform.api && platform.api.user && typeof platform.api.user.storagePath === 'function'
+        ? platform.api.user.storagePath()
+        : undefined,
+      disableTimer: true
+    });
+  }
+
   // Initial state push.
   accessory.context.roomId = room.roomId;
   accessory.context.room = room;
@@ -255,16 +286,32 @@ function pushRoomState(accessory, room) {
   const temp = accessory.getService(Service.TemperatureSensor);
   if (!thermo || !temp) return;
 
+  const currentTempC = Number(room.currentTemp / 10);
+  const setTempC = Number(effectiveTargetTemp(room) / 10);
+  const heatingState = deriveCurrentHeatingState(room);
+
   thermo.getCharacteristic(Characteristic.TargetTemperature)
-    .updateValue(Number(effectiveTargetTemp(room) / 10));
+    .updateValue(setTempC);
   thermo.getCharacteristic(Characteristic.CurrentTemperature)
-    .updateValue(Number(room.currentTemp / 10));
+    .updateValue(currentTempC);
   thermo.getCharacteristic(Characteristic.CurrentHeatingCoolingState)
-    .updateValue(deriveCurrentHeatingState(room));
+    .updateValue(heatingState);
   thermo.getCharacteristic(Characteristic.TargetHeatingCoolingState)
     .updateValue(deriveTargetHeatingState(room));
   temp.getCharacteristic(Characteristic.CurrentTemperature)
     .updateValue(Number(room.airTemp / 10));
+
+  // Record a history entry for Eve. valvePosition is synthesized — Warmup
+  // doesn't expose actual valve % via the cloud API, so we use the heating
+  // state as a proxy (100 = relay on, 0 = idle).
+  if (accessory.historyService && typeof accessory.historyService.addEntry === 'function') {
+    accessory.historyService.addEntry({
+      time: Math.floor(Date.now() / 1000),
+      currentTemp: currentTempC,
+      setTemp: setTempC,
+      valvePosition: heatingState === 1 ? 100 : 0
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -183,9 +183,11 @@ The REST API at `api.warmup.com/apps/app/v1` is a legacy compatibility layer. Ev
 
 ---
 
-### Milestone 5 — v3.2.0 — Eve / fakegato-history integration
+### ✅ Milestone 5 — v3.2.0 — Eve / fakegato-history integration — SHIPPED (partial)
 
 **Goal:** Energy graphs in the Eve app + temperature history.
+
+**Shipped 2026-05-05.** Temperature + heating-state history is live. Energy graphs (`Eve.Energy.TotalConsumption` mapped from `room.energy`) deferred to M6 to keep this release focused — would require defining Eve characteristic UUIDs or adding `homebridge-lib` for `EveHomeKitTypes`.
 
 #### What
 

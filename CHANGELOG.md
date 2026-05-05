@@ -7,6 +7,67 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.2.0] — 2026-05-05
+
+Roadmap [Milestone 5](ROADMAP.md) — **Eve / fakegato history graphs.**
+Now that the dynamic platform (M4) makes accessories persistent, fakegato
+can finally accumulate history across restarts. Eve.app users see
+temperature, target-temperature, and heating-state graphs per thermostat;
+Apple-Home-only users see no change.
+
+### Added
+
+- **`fakegato-history@^0.6.7`** dep (HAP-NodeJS v2-compatible — the version
+  that fixes the `Formats.DATA` bug that originally killed `homebridge-warmup4ie@0.0.14`
+  on Homebridge 2.0).
+- **`FakeGatoHistoryService('thermo', accessory, ...)` per thermostat.**
+  Constructed in `attachAccessoryServices`; the wrapper is in-memory only,
+  but fakegato persists history JSON to `~/.homebridge/persist/history_*.json`
+  independently of Homebridge's accessory cache.
+- **Per-poll history entry** in `pushRoomState`: `{ time, currentTemp,
+  setTemp, valvePosition }`. `time` is Unix seconds; temps are °C.
+  `valvePosition` is synthesized as 100 when `deriveCurrentHeatingState`
+  says heating, 0 when idle — Warmup's cloud doesn't expose actual valve
+  percentage. Roadmap M6 may use `Thermostat4iE.parameters.outputStatus`
+  (relay state) for a more accurate signal.
+- **`disableTimer: true`** option on the history service. We control timing
+  ourselves from the polling loop, so history aligns with actual data
+  freshness instead of running on a separate clock.
+
+### Changed
+
+- Plugin module-init now requires `fakegato-history` once and binds the
+  class to the homebridge instance. Wrapped in try/catch so a hypothetical
+  fakegato breakage doesn't kill the plugin — graphs are nice-to-have.
+
+### Tests
+
+- **75 total**, 72 offline + 2 live + 1 destructive (skipped). Up from 73
+  in 3.1.0.
+- New: `fakegato history` test in `platform-state.test.js` — verifies the
+  service is attached with correct type / options, an entry fires during
+  the initial attach, and another entry fires per poll cycle.
+
+### What this looks like for users
+
+- **Apple Home only:** no visible change. The history service is invisible
+  to default Home; thermostats look identical.
+- **Eve app installed:** open the thermostat → swipe to the history tab →
+  see graphs of current temp + set temp + heating state over the last
+  10 days, week, month, year. Three-day default view.
+- **Storage:** ~100 KB per thermostat per year, written to
+  `~/.homebridge/persist/history_thermo_warmup4ie-<roomId>.json`.
+
+### Why no Eve.Energy yet
+
+The roadmap originally bundled Eve.Energy.TotalConsumption (mapped from
+`room.energy`/`room.cost`) into M5. Punted to M6 to keep this release
+focused — it requires defining custom Eve characteristic UUIDs (or
+pulling in `homebridge-lib` for `EveHomeKitTypes`) and isn't essential
+for the headline graphs.
+
+---
+
 ## [3.1.0] — 2026-05-05
 
 Roadmap [Milestone 4](ROADMAP.md) — **Dynamic platform migration.** Closes
