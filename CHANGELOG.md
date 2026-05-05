@@ -7,6 +7,66 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.7.0] — 2026-05-05
+
+Roadmap [Milestone 6](ROADMAP.md) batch 5 — **child lock** per thermostat
+via `deviceAdvanced.lock`. **Marks M6 substantially complete** — see
+roadmap for which items intentionally won't ship.
+
+### Added
+
+- **`Service.LockMechanism` per Thermostat accessory.** Disables the
+  physical thermostat's touch screen while still letting the Warmup app
+  + this plugin change settings. Useful for households with kids /
+  curious cats / accidental tile-swiping.
+- **`setRoomChildLock(roomId, locked)`** lib method → GraphQL
+  `deviceAdvanced(lid, rid, lock: Boolean)`. Live-tested cleanly; the
+  gateway accepts `Boolean!` for the `lock` arg.
+- **`parameters { lock }`** added to the GraphQL query. Returns Int (0/1)
+  in practice; `normalizeRoom` coerces to a boolean for HomeKit.
+- **`LockCurrentState` / `LockTargetState`** characteristics on the new
+  Lock service. Optimistic update on tap (Target → Current); polling
+  reconciles from the device's actual state.
+- **Tests:** 117 total, 114 offline + 2 live + 1 destructive (skipped).
+  Up from 112 in v3.6.0. Five new tests:
+  - 3 wire-format tests (true/false sends, Boolean coercion of
+    truthy/falsy values)
+  - 2 platform-state tests (LockMechanism service attached, lock state
+    reflects `room.lock` from polling)
+
+### M6 status
+
+After this release, Roadmap M6 is substantially complete:
+- ✅ StatusFault (sensor diagnostics) — v3.3.0
+- ✅ runMode edge cases — v3.3.0
+- ✅ outputStatus relay signal — v3.4.0
+- ✅ StatusActive offline detection — v3.4.0
+- ✅ RemainingDuration override countdown — v3.4.0
+- ✅ Eve.Energy.TotalConsumption — v3.5.0
+- ✅ Real FirmwareRevision — v3.5.0
+- ✅ Vacation Mode Switch — v3.6.0
+- ✅ Frost Protection Switch — v3.6.0
+- ✅ Child lock — v3.7.0
+- 🚫 **Display brightness** — won't ship. HomeKit's only "0–100 dim" service
+  is `Lightbulb`, which would render the thermostat as a lightbulb tile in
+  Apple Home. Semantically wrong; bad UX outweighs the marginal value of
+  controlling display brightness from HomeKit (use the Warmup app).
+- 🚫 **Sensor offsets** — won't ship from M6. Calibrating floor probes is
+  a niche admin task; the path through Eve's admin tab + custom Eve
+  characteristics adds dependencies for marginal user value. Use the
+  Warmup app.
+- 🚫 **Schedule introspection (read-only)** — won't ship. HomeKit has no
+  thermostat-schedule UI; the data would only sit in `accessory.context`
+  for power users to dig out via Eve / Home Assistant. Low ROI; the
+  Warmup app's schedule editor is much better than anything we could
+  surface here.
+
+**Next:** Roadmap M7 — apply for [Homebridge Verified](https://github.com/homebridge/verified)
+status. All 11 verified-plugin requirements were already met at v3.1.0;
+M6's user-facing polish + a few weeks of stability is the final prep.
+
+---
+
 ## [3.6.0] — 2026-05-05
 
 Roadmap [Milestone 6](ROADMAP.md) batch 4 — location-wide modes as HomeKit

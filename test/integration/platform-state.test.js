@@ -71,7 +71,8 @@ function fakeHomebridge() {
         AccessoryInformation: sentinel('AccessoryInformation'),
         Thermostat: sentinel('Thermostat'),
         TemperatureSensor: sentinel('TemperatureSensor'),
-        Switch: sentinel('Switch')
+        Switch: sentinel('Switch'),
+        LockMechanism: sentinel('LockMechanism')
       },
       Characteristic: {
         Manufacturer: 'Manufacturer',
@@ -86,6 +87,9 @@ function fakeHomebridge() {
         StatusActive: 'StatusActive',
         RemainingDuration: 'RemainingDuration',
         On: 'On',  // Switch service's primary characteristic
+        // LockMechanism characteristics — UNSECURED=0, SECURED=1
+        LockCurrentState: { name: 'LockCurrentState', UNSECURED: 0, SECURED: 1, JAMMED: 2, UNKNOWN: 3 },
+        LockTargetState: { name: 'LockTargetState', UNSECURED: 0, SECURED: 1 },
         // Object form because the source reads `.NO_FAULT` / `.GENERAL_FAULT`
         // sub-properties. Map.get() uses object identity for the lookup.
         StatusFault: { name: 'StatusFault', NO_FAULT: 0, GENERAL_FAULT: 1 }
@@ -170,6 +174,8 @@ describe('warmup4ie dynamic platform', () => {
         this.clearLocationFrost = jest.fn(async () => {});
         this.setLocationHoliday = jest.fn(async () => {});
         this.clearLocationHoliday = jest.fn(async () => {});
+        // Per-room child lock (M6 batch 5)
+        this.setRoomChildLock = jest.fn(async () => {});
         clients.push(this);
 
         if (options.username === 'fail@example.com') {
@@ -595,6 +601,68 @@ describe('warmup4ie dynamic platform', () => {
     expect(platform.accessories.has('UUID(warmup4ie:frost:12345)')).toBe(true);
 
     platform.shutdown();
+  });
+
+  test('child lock: LockMechanism service attached, tap toggles via setRoomChildLock', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    const lockService = accessory.getService(api.hap.Service.LockMechanism);
+    expect(lockService).toBeDefined();
+
+    const target = lockService.getCharacteristic(api.hap.Characteristic.LockTargetState);
+
+    // Tap to lock
+    await target._invokeSet(1);  // SECURED
+    expect(clients[0].setRoomChildLock).toHaveBeenCalledWith(100001, true);
+
+    // Tap to unlock
+    await target._invokeSet(0);  // UNSECURED
+    expect(clients[0].setRoomChildLock).toHaveBeenCalledWith(100001, false);
+
+    platform.shutdown();
+  });
+
+  test('child lock: state reflects room.lock from polling', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    const lockService = accessory.getService(api.hap.Service.LockMechanism);
+    const current = lockService.getCharacteristic(api.hap.Characteristic.LockCurrentState);
+
+    // Simulate the device reporting locked
+    platform.thermostats.room[100001].lock = true;
+    current.updateValue.mockClear();
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(current.updateValue).toHaveBeenCalledWith(1); // SECURED
+
+    // And unlocked
+    platform.thermostats.room[100001].lock = false;
+    current.updateValue.mockClear();
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(current.updateValue).toHaveBeenCalledWith(0); // UNSECURED
+
+    platform.shutdown();
+    jest.useRealTimers();
   });
 
   test('shutdown: clears the poll timer and pending debouncers', async () => {

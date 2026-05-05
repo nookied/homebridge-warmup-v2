@@ -134,6 +134,37 @@ describe('GraphQL wire-format builders', () => {
     });
   });
 
+  describe('child lock (M6 batch 5)', () => {
+    test('setRoomChildLock(roomId, true) sends deviceAdvanced(lock: true)', async () => {
+      const { client, captured } = stubGraphQLClient(Warmup4IE);
+      await client.setRoomChildLock(123, true);
+
+      expect(captured[0].query).toMatch(/mutation DeviceAdvancedLock/);
+      expect(captured[0].query).toMatch(/deviceAdvanced\(lid: \$lid, rid: \$rid, lock: \$lock\)/);
+      expect(captured[0].variables).toEqual({ lid: 12345, rid: 123, lock: true });
+    });
+
+    test('setRoomChildLock(roomId, false) sends lock: false', async () => {
+      const { client, captured } = stubGraphQLClient(Warmup4IE);
+      await client.setRoomChildLock(456, false);
+
+      expect(captured[0].variables).toEqual({ lid: 12345, rid: 456, lock: false });
+    });
+
+    test('setRoomChildLock coerces truthy/falsy values to Boolean', async () => {
+      const { client, captured } = stubGraphQLClient(Warmup4IE);
+      await client.setRoomChildLock(1, 1);
+      await client.setRoomChildLock(1, 0);
+      await client.setRoomChildLock(1, null);
+      await client.setRoomChildLock(1, 'on');
+
+      expect(captured[0].variables.lock).toBe(true);
+      expect(captured[1].variables.lock).toBe(false);
+      expect(captured[2].variables.lock).toBe(false);
+      expect(captured[3].variables.lock).toBe(true);
+    });
+  });
+
   describe('write cache behaviour', () => {
     test('setRoomOff preserves the last known room snapshot until the next poll', async () => {
       const { client } = stubGraphQLClient(Warmup4IE);

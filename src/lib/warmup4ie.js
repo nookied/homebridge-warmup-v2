@@ -68,7 +68,7 @@ const GQL_OWNED_AND_ROOMS = `
             isFaultAir
             isFaultFloor1
             isFaultFloor2
-            parameters { outputStatus }
+            parameters { outputStatus lock }
           }
         }
       }
@@ -93,6 +93,12 @@ const GQL_CANCEL_HOLIDAY = 'mutation CancelHoliday($lid: Int!) { cancelHoliday(l
 // tap-to-vacation, tap-to-resume.
 const HOLIDAY_DEFAULT_TEMP_C = 5;
 const HOLIDAY_DEFAULT_DAYS = 365;
+
+// `deviceAdvanced` is the kitchen-sink mutation for per-thermostat config —
+// child lock, brightness, sensor offsets, etc. We currently only use it for
+// child lock (M6 batch 5). Other args are sent as-is when the caller passes
+// them; the gateway accepts partial argument lists.
+const GQL_DEVICE_ADVANCED_LOCK = 'mutation DeviceAdvancedLock($lid: Int!, $rid: Int!, $lock: Boolean!) { deviceAdvanced(lid: $lid, rid: $rid, lock: $lock) }';
 
 // Token-related errors that should trigger one re-auth + retry. Includes
 // HTTP 401, REST status.code 100/102/103, and any GraphQL error message
@@ -285,6 +291,16 @@ class Warmup4IE {
   async clearLocationHoliday() {
     return this._authenticatedGraphQL(GQL_CANCEL_HOLIDAY, { lid: this._locId });
   }
+
+  // Child lock — toggles `Thermostat4iE.parameters.lock` via deviceAdvanced.
+  // True = locked (touch screen disabled), false = unlocked (normal).
+  async setRoomChildLock(roomId, locked) {
+    return this._authenticatedGraphQL(GQL_DEVICE_ADVANCED_LOCK, {
+      lid: this._locId,
+      rid: roomId,
+      lock: Boolean(locked)
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +313,7 @@ class Warmup4IE {
 function normalizeRoom(r) {
   const t = (r.thermostat4ies && r.thermostat4ies[0]) || {};
   const params = t.parameters || {};
+  const lockValue = params.lock;
   return {
     // GraphQL returns Room.id; the platform (legacy from REST) expects roomId.
     roomId: r.id,
@@ -338,6 +355,10 @@ function normalizeRoom(r) {
     // FirmwareRevision when it parses as a valid SemVer-ish string.
     appFw: t.appFw,
     wifiFw: t.wifiFw,
+    // Child lock state from Thermostat4iE.parameters.lock (Int — 0/1 in
+    // practice). Cast to boolean for HomeKit; null when the field isn't
+    // in the payload (older API responses).
+    lock: typeof lockValue === 'number' ? lockValue !== 0 : null,
     lastPoll: t.lastPoll,
     // Real "is currently heating" relay signal — non-zero when the relay
     // is closed. Used by `deriveCurrentHeatingState` in preference to the

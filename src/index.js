@@ -311,6 +311,16 @@ function attachAccessoryServices(platform, accessory, room) {
   thermo.getCharacteristic(Characteristic.RemainingDuration)
     .setProps({ minValue: 0, maxValue: MAX_DURATION_MINUTES * 60 });
 
+  // Child lock: `Service.LockMechanism` paired with the Thermostat. UNLOCKED
+  // = touch screen accepts input, LOCKED = display is read-only on the
+  // device. Mapped to the `parameters.lock` boolean we get from GraphQL.
+  let lockService = accessory.getService(Service.LockMechanism);
+  if (!lockService) {
+    lockService = accessory.addService(Service.LockMechanism, `${room.roomName} Lock`);
+  }
+  lockService.getCharacteristic(Characteristic.LockTargetState)
+    .onSet((value) => handleChildLockSet(platform, accessory, value));
+
   // Eve.Energy.TotalConsumption — cumulative kWh shown in Eve.app's
   // long-term energy graph. The custom characteristic is auto-added on
   // first updateValue, but adding it explicitly here makes it visible
@@ -391,6 +401,22 @@ function pushRoomState(accessory, room) {
     thermo.getCharacteristic(EveTotalConsumption)
       .updateValue(deriveTotalConsumption(room));
   }
+
+  // Child lock state: only update if the lock service exists (it may not
+  // on cached accessories from older versions until the next reconcile).
+  const lockService = accessory.getService(Service.LockMechanism);
+  if (lockService && room.lock !== null && room.lock !== undefined) {
+    const lockState = room.lock
+      ? Characteristic.LockCurrentState.SECURED
+      : Characteristic.LockCurrentState.UNSECURED;
+    lockService.getCharacteristic(Characteristic.LockCurrentState).updateValue(lockState);
+    lockService.getCharacteristic(Characteristic.LockTargetState).updateValue(
+      room.lock
+        ? Characteristic.LockTargetState.SECURED
+        : Characteristic.LockTargetState.UNSECURED
+    );
+  }
+
   temp.getCharacteristic(Characteristic.CurrentTemperature)
     .updateValue(Number(room.airTemp / 10));
 
@@ -455,6 +481,28 @@ function handleTargetTemperatureSet(platform, accessory, value) {
     }, SLIDER_DEBOUNCE_MS);
     debouncers.set('targetTemp', timer);
   });
+}
+
+async function handleChildLockSet(platform, accessory, value) {
+  // HomeKit LockTargetState: UNSECURED=0, SECURED=1.
+  const wantsLocked = value === Characteristic.LockTargetState.SECURED;
+  platform.log.debug('Set ChildLock for %s → %s', accessory.displayName, wantsLocked ? 'locked' : 'unlocked');
+  try {
+    await platform.thermostats.setRoomChildLock(accessory.context.roomId, wantsLocked);
+    // Optimistically update CurrentState to match Target — the next poll
+    // will correct it if the device didn't actually accept.
+    const lockService = accessory.getService(Service.LockMechanism);
+    if (lockService) {
+      lockService.getCharacteristic(Characteristic.LockCurrentState).updateValue(
+        wantsLocked
+          ? Characteristic.LockCurrentState.SECURED
+          : Characteristic.LockCurrentState.UNSECURED
+      );
+    }
+  } catch (err) {
+    platform.log.error('Set ChildLock for %s failed: %s', accessory.displayName, err.message);
+    throw asHapStatusError(err);
+  }
 }
 
 function getDebouncers(platform, accessory) {

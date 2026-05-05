@@ -209,7 +209,7 @@ The REST API at `api.warmup.com/apps/app/v1` is a legacy compatibility layer. Ev
 
 ---
 
-### Milestone 6 — v3.3.0+ — Optional polish (in progress)
+### ✅ Milestone 6 — v3.3.0 → v3.7.0 — Optional polish — SHIPPED (substantially complete)
 
 A grab bag of features ranging from purely additive (no GraphQL changes) to "needs a careful query addition + live test". Each independently shippable. Pick based on user demand.
 
@@ -225,10 +225,10 @@ A grab bag of features ranging from purely additive (no GraphQL changes) to "nee
 | **`RemainingDuration` characteristic** | ✅ shipped v3.4.0 | ~30 min | HomeKit / Eve countdown for active overrides. |
 | **`Eve.Energy.TotalConsumption` from `room.total`** | ✅ shipped v3.5.0 | ~1 h | Eve.app long-term energy graph per thermostat. Custom characteristic with the well-known Eve UUID; populated from `room.total` (cumulative kWh, not the daily-reset `room.energy`). |
 | **`FirmwareRevision` from `appFw`** | ✅ shipped v3.5.0 | ~30 min | Real device firmware on the (i) info card (validated against HAP's SemVer-ish regex; falls back to plugin version on anything weird). |
-| **Sensor offsets via Eve admin tab** | open | ~2 h | Calibrate floor probe ±1°C without the Warmup app. Needs Eve characteristic UUIDs + `deviceAdvanced` mutation. |
-| **Child lock toggle** | open | ~1 h | HomeKit Lock service mapped to `deviceAdvanced.lock`. |
-| **Display brightness control** | open | ~1 h | LightBulb-like service mapped to `deviceAdvanced.brightness` (0–10). |
-| **Schedule introspection (read-only)** | open | ~1 h | Surface the week's schedule as a JSON attribute (not editable from HomeKit, but visible in Eve / HA). |
+| **Child lock toggle** | ✅ shipped v3.7.0 | ~1 h | `Service.LockMechanism` per Thermostat → `deviceAdvanced(lid, rid, lock: Boolean!)`. Disables the physical touch screen. |
+| **Sensor offsets via Eve admin tab** | 🚫 won't fix | ~2 h | Niche admin task. The path through Eve's admin tab + custom Eve characteristics adds dependencies for marginal user value. Use the Warmup app. |
+| **Display brightness control** | 🚫 won't fix | ~1 h | HomeKit's only "0-100 dim" service is `Lightbulb` — would render the thermostat as a lightbulb tile in Apple Home. Semantically wrong; bad UX outweighs marginal value. |
+| **Schedule introspection (read-only)** | 🚫 won't fix | ~1 h | HomeKit has no thermostat-schedule UI. Data would only sit in `accessory.context` for power users via Eve/HA. Warmup app's schedule editor beats anything we could surface here. |
 
 ---
 
