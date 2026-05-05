@@ -7,6 +7,34 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [Unreleased]
+
+Handoff polish — no functional change, no version bump warranted on its own.
+Will be folded into the next semver bump.
+
+### Changed
+- **Doc + comment cleanup pass for handoff.** Stale comments referring to
+  v2 behaviour (location-wide off, REST transport in API cheat sheet, etc.)
+  rewritten for v3.0 reality. `CLAUDE.md` architecture diagram, file
+  reference table, and known-issues sections fully refreshed. `QA_TESTS.md`
+  Section 4 (multi-room) inverted to verify per-room Off (was: verify
+  whole-location Off).
+- **Code polish.** Extracted `effectiveTargetTemp(room)` helper for the
+  `targetTemp > minTemp ? : minTemp` clamp (was inlined in two places).
+  Removed dead `outputStatus` / `parameters` extraction from `normalizeRoom`
+  — the GraphQL query no longer fetches `parameters` (was dropped during
+  the v3 live-test 409 debugging), so the field would always be undefined
+  in production. Roadmap M6 will re-add it deliberately.
+
+### Documentation
+- `package.json` `repository.url` invariant added to working rules and
+  pre-release checklist (sigstore provenance is strict — hit a 422 once
+  during the GitHub repo rename to `-v2`; documented to prevent recurrence).
+- Roadmap M4 (dynamic platform), M5 (Eve / fakegato), M6 (sensor metadata
+  + outputStatus) cross-referenced from CLAUDE.md known-issues.
+
+---
+
 ## [3.0.0] — 2026-05-05
 
 Roadmap [Milestone 3](ROADMAP.md) — GraphQL transport rewrite. **The big v3

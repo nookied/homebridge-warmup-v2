@@ -6,7 +6,8 @@
 // Each Warmup "room" is exposed as a HomeKit Thermostat (primary) plus a
 // paired TemperatureSensor for the air-temp probe. Static accessory platform
 // (legacy `accessories(callback)` flow) — Homebridge v2 still supports this.
-// A migration to dynamic platform is planned in v3.1; see ROADMAP.md.
+// A migration to dynamic platform is planned in v3.1 (Roadmap M4); see
+// ROADMAP.md for the broader development plan.
 
 'use strict';
 
@@ -76,6 +77,13 @@ function getAccessory(accessories, roomId) {
   return accessories.find((accessory) => accessory.roomId === roomId);
 }
 
+// Warmup's API can return targetTemp below the device's configured minimum
+// (e.g. just after switching modes); HomeKit rejects values out of the
+// characteristic's [minTemp, maxTemp] range, so clamp.
+function effectiveTargetTemp(room) {
+  return room.targetTemp > room.minTemp ? room.targetTemp : room.minTemp;
+}
+
 function updateStatus(room) {
   const acc = getAccessory(myAccessories, room.roomId);
   if (!acc) return;
@@ -83,10 +91,9 @@ function updateStatus(room) {
   // Refresh the per-accessory snapshot so .runMode-dependent setters see fresh state.
   acc.room = room;
 
-  const targetTemperature = (room.targetTemp > room.minTemp ? room.targetTemp : room.minTemp);
   acc.thermostatService
     .getCharacteristic(Characteristic.TargetTemperature)
-    .updateValue(Number(targetTemperature / 10));
+    .updateValue(Number(effectiveTargetTemp(room) / 10));
 
   acc.thermostatService
     .getCharacteristic(Characteristic.CurrentTemperature)
@@ -136,7 +143,7 @@ Warmup4ieAccessory.prototype = {
     this.log.debug('Set HeatingCoolingState for %s → %s', this.name, value);
     try {
       switch (value) {
-        case 0: // Off (location-wide — see lib note)
+        case 0: // Off — per-room since v3 (was location-wide in v2 due to API limit)
           await thermostats.setRoomOff(this.roomId);
           break;
         case 1: // Heat — keep override/fixed if already set, otherwise resume schedule
@@ -176,9 +183,10 @@ Warmup4ieAccessory.prototype = {
   getServices: function () {
     const informationService = new Service.AccessoryInformation()
       .setCharacteristic(Characteristic.Manufacturer, 'Warmup')
-      // The REST API doesn't expose per-thermostat model. v3.0 (GraphQL)
-      // populates this from `appFw`/`deviceModel`. For now, use a generic
-      // label that's accurate for any model in the supported range.
+      // Generic label that's accurate for any model in the supported range.
+      // The Warmup GraphQL schema exposes per-device fields (`appFw`,
+      // `wifiFw`, `deviceSN`) on `Thermostat4iE` — surfacing them as the
+      // real Model/FirmwareRevision is queued for Roadmap M6.
       .setCharacteristic(Characteristic.Model, 'Wi-Fi Thermostat')
       // Stable serial: roomId is unique per Warmup account and survives host moves.
       .setCharacteristic(Characteristic.SerialNumber, `warmup4ie-${this.roomId}`)
@@ -214,10 +222,9 @@ Warmup4ieAccessory.prototype = {
       .getCharacteristic(Characteristic.CurrentTemperature)
       .setProps({ minValue: -100, maxValue: 100 });
 
-    const targetTemperature = (this.room.targetTemp > this.room.minTemp ? this.room.targetTemp : this.room.minTemp);
     this.thermostatService
       .getCharacteristic(Characteristic.TargetTemperature)
-      .updateValue(Number(targetTemperature / 10));
+      .updateValue(Number(effectiveTargetTemp(this.room) / 10));
 
     this.thermostatService
       .getCharacteristic(Characteristic.CurrentTemperature)

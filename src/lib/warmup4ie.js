@@ -248,7 +248,6 @@ class Warmup4IE {
 // ---------------------------------------------------------------------------
 function normalizeRoom(r) {
   const t = (r.thermostat4ies && r.thermostat4ies[0]) || {};
-  const params = t.parameters || {};
   return {
     // GraphQL returns Room.id; the platform (legacy from REST) expects roomId.
     roomId: r.id,
@@ -268,12 +267,13 @@ function normalizeRoom(r) {
     energy: r.energy,
     cost: r.cost,
     // Fields surfaced for future M5/M6 use (Eve energy graphs, StatusFault).
+    // M6 will additionally fetch `parameters { outputStatus }` for the
+    // real "is currently heating" relay signal — not in the query today.
     floor1Temp: t.floor1Temp,
     floor2Temp: t.floor2Temp,
     isFaultAir: t.isFaultAir,
     isFaultFloor1: t.isFaultFloor1,
     isFaultFloor2: t.isFaultFloor2,
-    outputStatus: params.outputStatus,
     deviceSN: t.deviceSN,
     lastPoll: t.lastPoll
   };
