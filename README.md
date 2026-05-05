@@ -77,6 +77,9 @@ Add a platform entry to your Homebridge `config.json`:
 | `password` | yes | — | Your my.warmup.com password |
 | `refresh` | no | `60` | API polling interval, seconds |
 | `duration` | no | `60` | Override duration, minutes — how long a manual temperature change stays active before the schedule resumes |
+| `disableChildLock` | no | `false` | Hide the per-thermostat **Lock** tile. Useful when the model doesn't honour the lock command (Warmup Element Wi-Fi appears to ignore it). Removes any cached lock services on next launch. |
+| `disableVacationSwitch` | no | `false` | Hide the location-wide **Vacation Mode** switch. Removes the cached accessory on next launch. |
+| `disableFrostSwitch` | no | `false` | Hide the location-wide **Frost Protection** switch. Removes the cached accessory on next launch. |
 
 ## Recommended: enable Child Bridge
 
@@ -141,6 +144,12 @@ We currently set `Model = "Wi-Fi Thermostat"` because Warmup's cloud payload is 
 
 ### `floor2Temp` is always 0 / null on my 6iE / Element / Terra
 That's expected — only the 4iE has dual floor probes. Single-probe models return null/zero for the unused channel.
+
+### Child lock tile in HomeKit doesn't actually lock my thermostat
+Some models (notably the **Warmup Element Wi-Fi**) accept the `deviceAdvanced.lock` GraphQL mutation but don't actually disable the touch screen. Set `"disableChildLock": true` in your config to hide the lock tile — it'll be removed on next restart. There's no reliable per-model capability flag in the Warmup API yet, so the toggle is opt-out. If your model *does* honour the command, just leave the default.
+
+### I don't want the Vacation Mode / Frost Protection switches in HomeKit
+Set `"disableVacationSwitch": true` and/or `"disableFrostSwitch": true` in your config. The cached accessories are unregistered on the next reconcile and disappear from the Home app.
 
 ### Live API debugging
 ```bash

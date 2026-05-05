@@ -19,6 +19,11 @@ class FakePlatformAccessory {
     this._services.set(typeKey(type), svc);
     return svc;
   }
+  removeService(svc) {
+    for (const [key, candidate] of this._services) {
+      if (candidate === svc) { this._services.delete(key); return; }
+    }
+  }
 }
 
 function typeKey(type) {
@@ -713,6 +718,100 @@ describe('warmup4ie dynamic platform', () => {
 
     platform.shutdown();
     jest.useRealTimers();
+  });
+
+  test('disableChildLock: skips LockMechanism creation', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'one@example.com', password: 'p', disableChildLock: true },
+      api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    expect(accessory.getService(api.hap.Service.LockMechanism)).toBeUndefined();
+
+    platform.shutdown();
+  });
+
+  test('disableChildLock: removes LockMechanism from a previously-cached accessory', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'one@example.com', password: 'p', disableChildLock: true },
+      api
+    );
+    // Pre-populate a cached accessory that already has a LockMechanism
+    // service on it (i.e. a v3.7.0+ user upgrading and turning the option
+    // on for the first time).
+    const cached = new FakePlatformAccessory('User One', 'UUID(warmup4ie:100001)');
+    cached.addService(api.hap.Service.LockMechanism, 'User One Lock');
+    platform.configureAccessory(cached);
+
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(cached.getService(api.hap.Service.LockMechanism)).toBeUndefined();
+
+    platform.shutdown();
+  });
+
+  test('disableVacationSwitch: skips creation and unregisters cached vacation accessory', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'one@example.com', password: 'p', disableVacationSwitch: true },
+      api
+    );
+    // Cached vacation accessory from a previous launch (when the option
+    // was off). Use the same locId that the mocked Warmup4IE will resolve
+    // to, so the unregister path is "disabled kind" rather than "stale loc".
+    const cachedVacation = new FakePlatformAccessory(
+      'Vacation Mode', 'UUID(warmup4ie:vacation:12345)'
+    );
+    cachedVacation.context.kind = 'vacation';
+    cachedVacation.context.locId = 12345;
+    platform.configureAccessory(cachedVacation);
+
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.calls.unregister).toContain(cachedVacation);
+    expect(platform.accessories.has('UUID(warmup4ie:vacation:12345)')).toBe(false);
+    // Frost switch is still allowed — verify it was created.
+    expect(platform.accessories.has('UUID(warmup4ie:frost:12345)')).toBe(true);
+
+    platform.shutdown();
+  });
+
+  test('disableFrostSwitch: skips creation and unregisters cached frost accessory', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'one@example.com', password: 'p', disableFrostSwitch: true },
+      api
+    );
+    const cachedFrost = new FakePlatformAccessory(
+      'Frost Protection', 'UUID(warmup4ie:frost:12345)'
+    );
+    cachedFrost.context.kind = 'frost';
+    cachedFrost.context.locId = 12345;
+    platform.configureAccessory(cachedFrost);
+
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.calls.unregister).toContain(cachedFrost);
+    expect(platform.accessories.has('UUID(warmup4ie:frost:12345)')).toBe(false);
+    expect(platform.accessories.has('UUID(warmup4ie:vacation:12345)')).toBe(true);
+
+    platform.shutdown();
   });
 
   test('shutdown: clears the poll timer and pending debouncers', async () => {

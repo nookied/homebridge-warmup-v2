@@ -7,6 +7,50 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.10.0] — 2026-05-06
+
+Three new opt-out feature toggles for the optional HomeKit accessories
+the plugin creates, motivated by a real user report that the **Warmup
+Element Wi-Fi** doesn't honour the `deviceAdvanced.lock` mutation —
+tapping the child-lock tile in HomeKit succeeds at the API but the
+device's touch screen stays unlocked. Until/unless we find a per-model
+capability flag in the Warmup API, the disable flag is the right
+escape hatch. The Vacation/Frost switches got the same treatment for
+consistency: not everyone wants those tiles in their Home grid.
+
+### Added
+
+- **`disableChildLock`** (default `false`) — hides the per-thermostat
+  `Service.LockMechanism` and removes it from any cached accessories on
+  next launch. Recommended for **Warmup Element Wi-Fi** users; the
+  device accepts the mutation but doesn't lock the touch screen.
+- **`disableVacationSwitch`** (default `false`) — hides the location-wide
+  Vacation Mode switch. Cached accessory is unregistered on next launch.
+- **`disableFrostSwitch`** (default `false`) — hides the location-wide
+  Frost Protection switch. Cached accessory is unregistered on next
+  launch.
+
+All three are exposed in the Homebridge UI form-based config editor
+(`config.schema.json`).
+
+### Internal
+
+- `LOCATION_SWITCHES` specs now carry a `disabledBy` key (`'disableVacationSwitch'`
+  / `'disableFrostSwitch'`) so the reconcile loop can filter them by
+  reading `platform[spec.disabledBy]`.
+- `removeStaleLocationAccessories(platform, locId, enabledSpecs)` now
+  unregisters not only switches from old `locId`s but also switches
+  whose kind is no longer in the enabled set — same code path handles
+  both transitions cleanly.
+- `attachAccessoryServices` honours `platform.disableChildLock` by
+  removing any existing `Service.LockMechanism` from the accessory; the
+  Apple Home tile disappears on the next reconcile.
+- New tests in `platform-state.test.js` (+4): each disable flag verified
+  end-to-end (creation skipped + cached accessory removed). 125 offline
+  tests pass (up from 121 in v3.9.1).
+
+---
+
 ## [3.9.1] — 2026-05-05
 
 Hotfix for a v3.8.0 regression that surfaced once HAP-NodeJS 2.1.5

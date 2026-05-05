@@ -109,6 +109,15 @@ function warmup4iePlatform(log, config = {}, api) {
   this.password = config.password;
   this.refresh = boundedInteger(config.refresh, DEFAULT_REFRESH_SECONDS, MIN_REFRESH_SECONDS, MAX_REFRESH_SECONDS);
   this.duration = boundedInteger(config.duration, DEFAULT_DURATION_MINUTES, MIN_DURATION_MINUTES, MAX_DURATION_MINUTES);
+  // Feature toggles. Each defaults to enabled (false). Setting any of
+  // these to `true` in config.json hides the corresponding HomeKit
+  // accessory and removes it from cached state on next launch — useful
+  // when the device model doesn't actually honour the mutation (e.g. the
+  // Warmup Element ignores `deviceAdvanced.lock`) or the user simply
+  // doesn't want the extra tile.
+  this.disableChildLock = Boolean(config.disableChildLock);
+  this.disableVacationSwitch = Boolean(config.disableVacationSwitch);
+  this.disableFrostSwitch = Boolean(config.disableFrostSwitch);
 
   // Runtime state — persists for the lifetime of this platform instance only.
   this.thermostats = null;
@@ -231,8 +240,9 @@ warmup4iePlatform.prototype = {
     const locId = this.thermostats && this.thermostats._locId;
     if (locId == null) return;
 
-    removeStaleLocationAccessories(this, locId);
-    LOCATION_SWITCHES.forEach((spec) => {
+    const enabled = activeLocationSwitches(this);
+    removeStaleLocationAccessories(this, locId, enabled);
+    enabled.forEach((spec) => {
       ensureLocationSwitch(this, locId, spec);
     });
   },
@@ -334,17 +344,26 @@ function attachAccessoryServices(platform, accessory, room) {
   // Child lock: `Service.LockMechanism` paired with the Thermostat. UNLOCKED
   // = touch screen accepts input, LOCKED = display is read-only on the
   // device. Mapped to the `parameters.lock` boolean we get from GraphQL.
-  let lockService = accessory.getService(Service.LockMechanism);
-  if (!lockService) {
-    lockService = accessory.addService(Service.LockMechanism, `${room.roomName} Lock`);
-  }
-  lockService.getCharacteristic(Characteristic.LockTargetState)
-    .onSet((value) => handleChildLockSet(platform, accessory, value));
-  // Group the lock under the thermostat in Apple Home (one tile, expandable
-  // into "+ Lock"). Without this they show as two separate tiles in the room.
-  // `addLinkedService` is idempotent — safe to call on cached accessories.
-  if (typeof thermo.addLinkedService === 'function') {
-    thermo.addLinkedService(lockService);
+  // Skipped when `disableChildLock` is set — useful for models like the
+  // Warmup Element that don't honour the `deviceAdvanced.lock` mutation.
+  // If a previous launch attached the service, remove it on restart so the
+  // tile disappears from HomeKit instead of lingering as a no-op.
+  if (platform.disableChildLock) {
+    const existingLock = accessory.getService(Service.LockMechanism);
+    if (existingLock) accessory.removeService(existingLock);
+  } else {
+    let lockService = accessory.getService(Service.LockMechanism);
+    if (!lockService) {
+      lockService = accessory.addService(Service.LockMechanism, `${room.roomName} Lock`);
+    }
+    lockService.getCharacteristic(Characteristic.LockTargetState)
+      .onSet((value) => handleChildLockSet(platform, accessory, value));
+    // Group the lock under the thermostat in Apple Home (one tile, expandable
+    // into "+ Lock"). Without this they show as two separate tiles in the room.
+    // `addLinkedService` is idempotent — safe to call on cached accessories.
+    if (typeof thermo.addLinkedService === 'function') {
+      thermo.addLinkedService(lockService);
+    }
   }
 
   // Eve.Energy.TotalConsumption — cumulative kWh shown in Eve.app's
@@ -589,6 +608,7 @@ const LOCATION_SWITCHES = [
     displayName: 'Vacation Mode',
     runModeSignal: 'holiday',
     description: 'Holiday mode — frost-low setpoint for a year. Cancel via the switch or the Warmup app.',
+    disabledBy: 'disableVacationSwitch',
     enable: (thermostats) => thermostats.setLocationHoliday(),
     disable: (thermostats) => thermostats.clearLocationHoliday()
   },
@@ -597,10 +617,15 @@ const LOCATION_SWITCHES = [
     displayName: 'Frost Protection',
     runModeSignal: 'anti_frost',
     description: 'Frost protection — minimum heating to prevent freezing.',
+    disabledBy: 'disableFrostSwitch',
     enable: (thermostats) => thermostats.setLocationFrost(),
     disable: (thermostats) => thermostats.clearLocationFrost()
   }
 ];
+
+function activeLocationSwitches(platform) {
+  return LOCATION_SWITCHES.filter((spec) => !platform[spec.disabledBy]);
+}
 
 function isLocationAccessory(accessory) {
   return accessory && accessory.context && LOCATION_SWITCHES.some((s) => s.kind === accessory.context.kind);
@@ -640,13 +665,20 @@ function ensureLocationSwitch(platform, locId, spec) {
   }
 }
 
-function removeStaleLocationAccessories(platform, currentLocId) {
+function removeStaleLocationAccessories(platform, currentLocId, enabledSpecs) {
+  const enabledKinds = new Set(enabledSpecs.map((s) => s.kind));
   const stale = [];
   for (const [accUuid, accessory] of platform.accessories) {
     if (!isLocationAccessory(accessory)) continue;
-    if (String(accessory.context.locId) === String(currentLocId)) continue;
+    const isWrongLocation = String(accessory.context.locId) !== String(currentLocId);
+    const isDisabledKind = !enabledKinds.has(accessory.context.kind);
+    if (!isWrongLocation && !isDisabledKind) continue;
 
-    platform.log.info('Removing stale location accessory: %s', accessory.displayName);
+    platform.log.info(
+      'Removing %s location accessory: %s',
+      isDisabledKind ? 'disabled' : 'stale',
+      accessory.displayName
+    );
     stale.push(accessory);
     platform.accessories.delete(accUuid);
     platform._debouncers.delete(accUuid);

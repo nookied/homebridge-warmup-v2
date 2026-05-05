@@ -43,6 +43,24 @@
         "minimum": 5,
         "maximum": 1440,
         "description": "How long a manual temperature change stays active before the schedule resumes. Maximum 1440 (24 h)."
+      },
+      "disableChildLock": {
+        "title": "Hide child-lock control",
+        "type": "boolean",
+        "default": false,
+        "description": "Hides the per-thermostat 'Lock' tile in HomeKit. Useful when the device model doesn't honour the lock command (e.g. Warmup Element Wi-Fi). Cached lock services are removed on next launch."
+      },
+      "disableVacationSwitch": {
+        "title": "Hide Vacation Mode switch",
+        "type": "boolean",
+        "default": false,
+        "description": "Hides the location-wide Vacation Mode HomeKit switch. Cached accessory is removed on next launch."
+      },
+      "disableFrostSwitch": {
+        "title": "Hide Frost Protection switch",
+        "type": "boolean",
+        "default": false,
+        "description": "Hides the location-wide Frost Protection HomeKit switch. Cached accessory is removed on next launch."
       }
     }
   }
