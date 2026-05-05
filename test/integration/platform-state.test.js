@@ -70,7 +70,8 @@ function fakeHomebridge() {
       Service: {
         AccessoryInformation: sentinel('AccessoryInformation'),
         Thermostat: sentinel('Thermostat'),
-        TemperatureSensor: sentinel('TemperatureSensor')
+        TemperatureSensor: sentinel('TemperatureSensor'),
+        Switch: sentinel('Switch')
       },
       Characteristic: {
         Manufacturer: 'Manufacturer',
@@ -82,6 +83,9 @@ function fakeHomebridge() {
         TargetTemperature: 'TargetTemperature',
         CurrentHeatingCoolingState: 'CurrentHeatingCoolingState',
         TargetHeatingCoolingState: 'TargetHeatingCoolingState',
+        StatusActive: 'StatusActive',
+        RemainingDuration: 'RemainingDuration',
+        On: 'On',  // Switch service's primary characteristic
         // Object form because the source reads `.NO_FAULT` / `.GENERAL_FAULT`
         // sub-properties. Map.get() uses object identity for the lookup.
         StatusFault: { name: 'StatusFault', NO_FAULT: 0, GENERAL_FAULT: 1 }
@@ -156,10 +160,16 @@ describe('warmup4ie dynamic platform', () => {
       MockWarmup4IE = jest.fn(function (options, callback) {
         this.options = options;
         this.room = [];
+        this._locId = options.username === 'one@example.com' ? 12345 : 67890;
         this.getStatus = jest.fn(async () => this.room.filter(Boolean));
         this.setRoomAuto = jest.fn(async () => {});
         this.setRoomOff = jest.fn(async () => {});
         this.setTargetTemperature = jest.fn(async () => {});
+        // Location-wide mode mutations (M6 batch 4)
+        this.setLocationFrost = jest.fn(async () => {});
+        this.clearLocationFrost = jest.fn(async () => {});
+        this.setLocationHoliday = jest.fn(async () => {});
+        this.clearLocationHoliday = jest.fn(async () => {});
         clients.push(this);
 
         if (options.username === 'fail@example.com') {
@@ -245,11 +255,14 @@ describe('warmup4ie dynamic platform', () => {
     await new Promise((r) => queueMicrotask(r));
     await new Promise((r) => queueMicrotask(r)); // second tick for the inner microtask
 
-    // One room → one new accessory registered.
-    const accessoryRegistrations = api.calls.register.filter((c) => c.kind === 'accessories');
-    expect(accessoryRegistrations).toHaveLength(1);
-    expect(accessoryRegistrations[0].accessories).toHaveLength(1);
-    expect(accessoryRegistrations[0].accessories[0].displayName).toBe('one@example.com');
+    // One room → one new room accessory registered. (Location-mode switches
+    // are also registered separately; filter them out by context.kind.)
+    const roomRegistrations = api.calls.register.filter((c) =>
+      c.kind === 'accessories' && c.accessories.some((acc) => !acc.context.kind)
+    );
+    expect(roomRegistrations).toHaveLength(1);
+    expect(roomRegistrations[0].accessories).toHaveLength(1);
+    expect(roomRegistrations[0].accessories[0].displayName).toBe('one@example.com');
 
     platform.shutdown();
   });
@@ -330,9 +343,12 @@ describe('warmup4ie dynamic platform', () => {
     await new Promise((r) => queueMicrotask(r));
 
     expect(api.calls.unregister).not.toContain(cached);
-    // No NEW registration — cached one was reused.
-    const newRegistrations = api.calls.register.filter((c) => c.kind === 'accessories');
-    expect(newRegistrations).toHaveLength(0);
+    // No NEW *room* registration — cached one was reused. (Location-mode
+    // switches do still get registered; filter them out.)
+    const newRoomRegistrations = api.calls.register.filter((c) =>
+      c.kind === 'accessories' && c.accessories.some((acc) => !acc.context.kind)
+    );
+    expect(newRoomRegistrations).toHaveLength(0);
     // It's still the same accessory in the platform map.
     expect(platform.accessories.get(liveUuid)).toBe(cached);
 
@@ -453,6 +469,132 @@ describe('warmup4ie dynamic platform', () => {
 
     platform.shutdown();
     jest.useRealTimers();
+  });
+
+  test('location-mode switches: Vacation + Frost accessories created with stable per-locId UUIDs', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // UUID seeds use the locId so multi-account installs don't collide.
+    const vacationUuid = 'UUID(warmup4ie:vacation:12345)';
+    const frostUuid = 'UUID(warmup4ie:frost:12345)';
+
+    expect(platform.accessories.has(vacationUuid)).toBe(true);
+    expect(platform.accessories.has(frostUuid)).toBe(true);
+
+    const vacation = platform.accessories.get(vacationUuid);
+    expect(vacation.context.kind).toBe('vacation');
+    expect(vacation.context.locId).toBe(12345);
+
+    const frost = platform.accessories.get(frostUuid);
+    expect(frost.context.kind).toBe('frost');
+
+    platform.shutdown();
+  });
+
+  test('location-mode switches: tap on/off invokes the right lib method', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const vacation = platform.accessories.get('UUID(warmup4ie:vacation:12345)');
+    const frost = platform.accessories.get('UUID(warmup4ie:frost:12345)');
+
+    const vacationSwitch = vacation.getService(api.hap.Service.Switch);
+    const frostSwitch = frost.getService(api.hap.Service.Switch);
+
+    // Tap Vacation ON → setLocationHoliday
+    await vacationSwitch.getCharacteristic('On')._invokeSet(true);
+    expect(clients[0].setLocationHoliday).toHaveBeenCalled();
+    expect(clients[0].clearLocationHoliday).not.toHaveBeenCalled();
+
+    // Tap Vacation OFF → clearLocationHoliday
+    await vacationSwitch.getCharacteristic('On')._invokeSet(false);
+    expect(clients[0].clearLocationHoliday).toHaveBeenCalled();
+
+    // Tap Frost ON → setLocationFrost
+    await frostSwitch.getCharacteristic('On')._invokeSet(true);
+    expect(clients[0].setLocationFrost).toHaveBeenCalled();
+
+    // Tap Frost OFF → clearLocationFrost (resume schedule)
+    await frostSwitch.getCharacteristic('On')._invokeSet(false);
+    expect(clients[0].clearLocationFrost).toHaveBeenCalled();
+
+    platform.shutdown();
+  });
+
+  test('location-mode switches: state reflects room runMode on each poll', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const vacation = platform.accessories.get('UUID(warmup4ie:vacation:12345)');
+    const frost = platform.accessories.get('UUID(warmup4ie:frost:12345)');
+    const vacationOn = vacation.getService(api.hap.Service.Switch).getCharacteristic('On');
+    const frostOn = frost.getService(api.hap.Service.Switch).getCharacteristic('On');
+
+    // Initially neither active (room is in 'schedule' mode).
+    vacationOn.updateValue.mockClear();
+    frostOn.updateValue.mockClear();
+
+    platform.thermostats.room[100001].runMode = 'holiday';
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(vacationOn.updateValue).toHaveBeenCalledWith(true);
+    expect(frostOn.updateValue).toHaveBeenCalledWith(false);
+
+    platform.thermostats.room[100001].runMode = 'anti_frost';
+    vacationOn.updateValue.mockClear();
+    frostOn.updateValue.mockClear();
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(vacationOn.updateValue).toHaveBeenCalledWith(false);
+    expect(frostOn.updateValue).toHaveBeenCalledWith(true);
+
+    platform.shutdown();
+    jest.useRealTimers();
+  });
+
+  test('location-mode switches survive an unrelated room being unregistered (not nuked)', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    // Cache a stale room accessory that's not in the live response.
+    const stale = new FakePlatformAccessory('Old Room', 'UUID(warmup4ie:99)');
+    platform.configureAccessory(stale);
+
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Stale room got unregistered; location switches did NOT.
+    expect(api.calls.unregister).toContain(stale);
+    expect(platform.accessories.has('UUID(warmup4ie:vacation:12345)')).toBe(true);
+    expect(platform.accessories.has('UUID(warmup4ie:frost:12345)')).toBe(true);
+
+    platform.shutdown();
   });
 
   test('shutdown: clears the poll timer and pending debouncers', async () => {

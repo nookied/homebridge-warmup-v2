@@ -79,9 +79,58 @@ describe('GraphQL wire-format builders', () => {
       const { client, captured } = stubGraphQLClient(Warmup4IE);
       await client.setRoomAuto(789);
 
-      expect(captured[0].query).toMatch(/mutation DeviceProgram/);
+      expect(captured[0].query).toMatch(/mutation DeviceProgram\b/);
       expect(captured[0].query).toMatch(/deviceProgram\(lid: \$lid, rid: \$rid\)/);
       expect(captured[0].variables).toEqual({ lid: 12345, rid: 789 });
+    });
+  });
+
+  describe('location-wide mode mutations (M6 batch 4)', () => {
+    test('setLocationFrost: deviceFrost(lid) without rid', async () => {
+      const { client, captured } = stubGraphQLClient(Warmup4IE);
+      await client.setLocationFrost();
+
+      expect(captured[0].query).toMatch(/mutation DeviceFrostAll/);
+      expect(captured[0].query).toMatch(/deviceFrost\(lid: \$lid\)/);
+      expect(captured[0].variables).toEqual({ lid: 12345 });
+    });
+
+    test('clearLocationFrost: deviceProgram(lid) without rid (resume schedule)', async () => {
+      const { client, captured } = stubGraphQLClient(Warmup4IE);
+      await client.clearLocationFrost();
+
+      expect(captured[0].query).toMatch(/mutation DeviceProgramAll/);
+      expect(captured[0].variables).toEqual({ lid: 12345 });
+    });
+
+    test('setLocationHoliday: deviceHoliday with default 5°C × 365 days', async () => {
+      const { client, captured } = stubGraphQLClient(Warmup4IE);
+      await client.setLocationHoliday();
+
+      expect(captured[0].query).toMatch(/mutation DeviceHoliday/);
+      const v = captured[0].variables;
+      expect(v.lid).toBe(12345);
+      expect(v.temperature).toBe(50);  // 5°C × 10
+      expect(v.days).toBe(365);
+      expect(v.start).toMatch(/^\d{4}-\d{2}-\d{2} 00:00:00$/);
+      expect(v.end).toMatch(/^\d{4}-\d{2}-\d{2} 23:59:59$/);
+    });
+
+    test('setLocationHoliday with explicit temperature + days args', async () => {
+      const { client, captured } = stubGraphQLClient(Warmup4IE);
+      await client.setLocationHoliday(8, 14);
+
+      const v = captured[0].variables;
+      expect(v.temperature).toBe(80);
+      expect(v.days).toBe(14);
+    });
+
+    test('clearLocationHoliday: cancelHoliday(lid)', async () => {
+      const { client, captured } = stubGraphQLClient(Warmup4IE);
+      await client.clearLocationHoliday();
+
+      expect(captured[0].query).toMatch(/mutation CancelHoliday/);
+      expect(captured[0].variables).toEqual({ lid: 12345 });
     });
   });
 

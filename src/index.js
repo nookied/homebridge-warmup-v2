@@ -147,6 +147,7 @@ warmup4iePlatform.prototype = {
 
       this.log.info('Found %s room(s)', rooms.length);
       this.reconcileAccessories(rooms);
+      this.reconcileLocationAccessories();
       this.startPolling();
     });
   },
@@ -193,8 +194,11 @@ warmup4iePlatform.prototype = {
     }
 
     // Unregister cached accessories that are no longer in the Warmup account.
+    // Skip location-mode switches — they're managed by reconcileLocationAccessories
+    // and aren't tied to any individual room.
     const stale = [];
     for (const [accUuid, accessory] of this.accessories) {
+      if (isLocationAccessory(accessory)) continue;
       if (!seen.has(accUuid)) {
         this.log.info('Removing stale accessory: %s', accessory.displayName);
         stale.push(accessory);
@@ -207,6 +211,18 @@ warmup4iePlatform.prototype = {
     }
   },
 
+  // Add location-wide HomeKit Switches (Vacation Mode, Frost Protection)
+  // for this account. Idempotent: refreshes services on cached versions,
+  // registers new ones the first time we see this locId.
+  reconcileLocationAccessories: function () {
+    const locId = this.thermostats && this.thermostats._locId;
+    if (locId == null) return;
+
+    LOCATION_SWITCHES.forEach((spec) => {
+      ensureLocationSwitch(this, locId, spec);
+    });
+  },
+
   startPolling: function () {
     this.shutdown();
     this._pollTimer = setInterval(async () => {
@@ -214,6 +230,7 @@ warmup4iePlatform.prototype = {
         if (!this.thermostats) return;
         const rooms = await this.thermostats.getStatus();
         rooms.forEach((room) => updateAccessoryState(this, room));
+        pushLocationSwitchStates(this);
       } catch (err) {
         this.log.error('Warmup poll failed:', err.message);
       }
@@ -460,6 +477,100 @@ function asHapStatusError(err) {
     return new HapStatusError(HAPStatus.INSUFFICIENT_AUTHORIZATION);
   }
   return new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+}
+
+// ---------------------------------------------------------------------------
+// Location-wide modes (M6 batch 4 — v3.6.0)
+//
+// One synthetic Switch accessory per location-mode (Vacation, Frost). State
+// is reflected from `room.runMode`: if any room reports `holiday` or
+// `anti_frost`, the corresponding switch shows ON.
+// ---------------------------------------------------------------------------
+
+const LOCATION_SWITCHES = [
+  {
+    kind: 'vacation',
+    displayName: 'Vacation Mode',
+    runModeSignal: 'holiday',
+    description: 'Holiday mode — frost-low setpoint for a year. Cancel via the switch or the Warmup app.',
+    enable: (thermostats) => thermostats.setLocationHoliday(),
+    disable: (thermostats) => thermostats.clearLocationHoliday()
+  },
+  {
+    kind: 'frost',
+    displayName: 'Frost Protection',
+    runModeSignal: 'anti_frost',
+    description: 'Frost protection — minimum heating to prevent freezing.',
+    enable: (thermostats) => thermostats.setLocationFrost(),
+    disable: (thermostats) => thermostats.clearLocationFrost()
+  }
+];
+
+function isLocationAccessory(accessory) {
+  return accessory && accessory.context && LOCATION_SWITCHES.some((s) => s.kind === accessory.context.kind);
+}
+
+function ensureLocationSwitch(platform, locId, spec) {
+  const accessoryUuid = uuid.generate(`warmup4ie:${spec.kind}:${locId}`);
+  let accessory = platform.accessories.get(accessoryUuid);
+  const isNew = !accessory;
+  if (!accessory) {
+    accessory = new PlatformAccessoryCtor(spec.displayName, accessoryUuid);
+    platform.accessories.set(accessoryUuid, accessory);
+  }
+
+  const info = accessory.getService(Service.AccessoryInformation) || accessory.addService(Service.AccessoryInformation);
+  info
+    .setCharacteristic(Characteristic.Manufacturer, 'Warmup')
+    .setCharacteristic(Characteristic.Model, 'Location Mode')
+    .setCharacteristic(Characteristic.SerialNumber, `warmup4ie-${spec.kind}-${locId}`)
+    .setCharacteristic(Characteristic.FirmwareRevision, PLUGIN_VERSION);
+
+  let sw = accessory.getService(Service.Switch);
+  if (!sw) {
+    sw = accessory.addService(Service.Switch, spec.displayName);
+  }
+  sw.getCharacteristic(Characteristic.On)
+    .onSet((value) => handleLocationSwitchSet(platform, spec, value));
+
+  accessory.context.kind = spec.kind;
+  accessory.context.locId = locId;
+
+  if (isNew) {
+    platform.log.info('Adding %s switch', spec.displayName);
+    platform.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+  } else {
+    platform.api.updatePlatformAccessories([accessory]);
+  }
+}
+
+async function handleLocationSwitchSet(platform, spec, value) {
+  platform.log.debug('Set %s → %s', spec.displayName, value);
+  try {
+    if (value) {
+      await spec.enable(platform.thermostats);
+    } else {
+      await spec.disable(platform.thermostats);
+    }
+  } catch (err) {
+    platform.log.error('Set %s failed: %s', spec.displayName, err.message);
+    throw asHapStatusError(err);
+  }
+}
+
+// Reflect actual location-mode state on the Switch characteristics. If any
+// room is in `holiday`/`anti_frost`, the corresponding switch is ON.
+function pushLocationSwitchStates(platform) {
+  const rooms = (platform.thermostats && platform.thermostats.room) || [];
+  LOCATION_SWITCHES.forEach((spec) => {
+    const accessoryUuid = uuid.generate(`warmup4ie:${spec.kind}:${platform.thermostats._locId}`);
+    const accessory = platform.accessories.get(accessoryUuid);
+    if (!accessory) return;
+    const sw = accessory.getService(Service.Switch);
+    if (!sw) return;
+    const active = rooms.some((r) => r && r.runMode === spec.runModeSignal);
+    sw.getCharacteristic(Characteristic.On).updateValue(active);
+  });
 }
 
 // ---------------------------------------------------------------------------

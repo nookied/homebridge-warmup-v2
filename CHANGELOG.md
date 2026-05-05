@@ -7,6 +7,54 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.6.0] — 2026-05-05
+
+Roadmap [Milestone 6](ROADMAP.md) batch 4 — location-wide modes as HomeKit
+Switches. Tap to enter Vacation Mode (frost-low setpoint for a year) or
+Frost Protection (passive minimum heat). Tap again to resume schedule.
+
+### Added
+
+- **"Vacation Mode" Switch** per platform. Maps to GraphQL
+  `deviceHoliday(lid, temperature: 50, days: 365, start, end)` (5 °C frost-low,
+  one year, today → today + 365). Off → `cancelHoliday(lid)`. State reflects
+  the room cache: any room with `runMode === 'holiday'` flips the switch ON.
+- **"Frost Protection" Switch** per platform. Maps to GraphQL
+  `deviceFrost(lid)` (location-wide). Off → `deviceProgram(lid)` (resume
+  schedule). State reflects `runMode === 'anti_frost'` on any room.
+- **Synthetic per-location accessory** for each Switch. Stable UUID seeded
+  with locId (`warmup4ie:vacation:<locId>` and `:frost:<locId>`) so
+  multi-account installs don't collide. Skipped from `reconcileAccessories`'s
+  unregister-stale loop (they aren't tied to any room).
+- **`reconcileLocationAccessories()`** runs once after bootstrap; idempotent
+  on subsequent restarts (cached accessories get refreshed via
+  `api.updatePlatformAccessories`, new ones registered via
+  `api.registerPlatformAccessories`).
+- **`pushLocationSwitchStates()`** runs every poll alongside per-room state,
+  syncing the Switch.On values from the latest `runMode` data.
+
+### Why I picked one Switch each (not Holiday + Frost combined into "Vacation")
+
+Both modes serve subtly different intents in the Warmup app:
+- **Frost** = "passive minimum heat"; toggle on/off, no temperature config.
+- **Holiday** = "I'm away for X days at temperature Y"; calendared.
+For a HomeKit toggle, exposing both lets users pick the one that matches
+their actual use case rather than collapsing both into a one-size-fits-all.
+
+### Tests
+
+- 112 total, 109 offline + 2 live + 1 destructive (skipped). Up from 103
+  in v3.5.0. New:
+  - 5 wire-format tests for the new GraphQL mutations
+    (`setLocationFrost`/`clearLocationFrost`/`setLocationHoliday` with
+    default + explicit args / `clearLocationHoliday`).
+  - 4 platform-state tests for the location switches: stable UUIDs from
+    locId, tap-on/tap-off invokes the right lib method, polling reflects
+    `runMode` changes, and the switches survive an unrelated room being
+    unregistered (didn't accidentally land in the unregister-stale loop).
+
+---
+
 ## [3.5.0] — 2026-05-05
 
 Roadmap [Milestone 6](ROADMAP.md) batch 3 — energy graphs in Eve and real

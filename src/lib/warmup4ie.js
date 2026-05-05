@@ -80,6 +80,20 @@ const GQL_DEVICE_PROGRAM = 'mutation DeviceProgram($lid: Int!, $rid: Int) { devi
 const GQL_DEVICE_OFF = 'mutation DeviceOff($lid: Int!, $rid: Int) { deviceOff(lid: $lid, rid: $rid) }';
 const GQL_DEVICE_OVERRIDE = 'mutation DeviceOverride($lid: Int!, $rid: Int, $temperature: Int!, $minutes: Int!) { deviceOverride(lid: $lid, rid: $rid, temperature: $temperature, minutes: $minutes) }';
 
+// Location-wide modes (M6 batch 4 — v3.6.0). All take only `lid` and apply
+// to every room at the location. `rid` is omitted (the schema accepts that;
+// see jondarrer/warmup-api).
+const GQL_DEVICE_FROST_ALL = 'mutation DeviceFrostAll($lid: Int!) { deviceFrost(lid: $lid) }';
+const GQL_DEVICE_PROGRAM_ALL = 'mutation DeviceProgramAll($lid: Int!) { deviceProgram(lid: $lid) }';
+const GQL_DEVICE_HOLIDAY = 'mutation DeviceHoliday($lid: Int!, $temperature: Int!, $days: Int!, $start: String!, $end: String!) { deviceHoliday(lid: $lid, temperature: $temperature, days: $days, start: $start, end: $end) }';
+const GQL_CANCEL_HOLIDAY = 'mutation CancelHoliday($lid: Int!) { cancelHoliday(lid: $lid) }';
+
+// Defaults for the "Vacation Mode" switch — frost-low temperature for a
+// year. Users wanting custom values use the Warmup app; HomeKit gives one
+// tap-to-vacation, tap-to-resume.
+const HOLIDAY_DEFAULT_TEMP_C = 5;
+const HOLIDAY_DEFAULT_DAYS = 365;
+
 // Token-related errors that should trigger one re-auth + retry. Includes
 // HTTP 401, REST status.code 100/102/103, and any GraphQL error message
 // containing token/auth keywords.
@@ -245,6 +259,32 @@ class Warmup4IE {
       minutes: this._duration
     });
   }
+
+  // Location-wide modes — `rid` omitted = applies to every room.
+
+  async setLocationFrost() {
+    return this._authenticatedGraphQL(GQL_DEVICE_FROST_ALL, { lid: this._locId });
+  }
+
+  // No "clear frost" mutation in the schema. Resume schedule (program) for
+  // the whole location — that's what the Warmup app does.
+  async clearLocationFrost() {
+    return this._authenticatedGraphQL(GQL_DEVICE_PROGRAM_ALL, { lid: this._locId });
+  }
+
+  async setLocationHoliday(temperatureC = HOLIDAY_DEFAULT_TEMP_C, days = HOLIDAY_DEFAULT_DAYS) {
+    return this._authenticatedGraphQL(GQL_DEVICE_HOLIDAY, {
+      lid: this._locId,
+      temperature: Math.round(temperatureC * 10),
+      days,
+      start: warmupDateString(new Date(), '00:00:00'),
+      end: warmupDateString(new Date(Date.now() + days * 86400000), '23:59:59')
+    });
+  }
+
+  async clearLocationHoliday() {
+    return this._authenticatedGraphQL(GQL_CANCEL_HOLIDAY, { lid: this._locId });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +352,16 @@ function toWarmupTemperature(value) {
     throw new Error(`Invalid target temperature: ${value}`);
   }
   return Math.round(temperature * 10);
+}
+
+// "YYYY-MM-DD HH:MM:SS" — the format `deviceHoliday` expects per the schema's
+// arg description (jondarrer/warmup-api). Built from local components so the
+// Warmup server interprets it in the same wall-clock zone the user lives in.
+function warmupDateString(date, timeOfDay) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${timeOfDay}`;
 }
 
 module.exports = { Warmup4IE };

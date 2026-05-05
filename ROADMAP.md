@@ -218,8 +218,8 @@ A grab bag of features ranging from purely additive (no GraphQL changes) to "nee
 | **`StatusFault` from sensor fault flags** | ✅ shipped v3.3.0 | ~30 min | Sensor disconnects show as a fault badge in HomeKit accessory diagnostics. |
 | **`runMode` edge cases** (`anti_frost`, `holiday`, `gradual`, etc.) | ✅ shipped v3.3.0 | ~30 min | `TargetHeatingCoolingState` is correct for vacation/frost-protection modes (was: always HEAT). |
 | **Defensive: 0-room poll doesn't unregister cache** | ✅ shipped v3.3.0 | ~30 min | A transient Warmup API hiccup no longer rips users' HomeKit tiles out of rooms / scenes. |
-| **Holiday mode as a HomeKit Switch** | open | ~2 h | Toggle to set the whole location into vacation mode at a defined frost-low temp. Needs new `deviceHoliday` GraphQL mutation. |
-| **Per-location Frost mode as a HomeKit Switch** | open | ~1 h | One-tap "frost protection" (e.g. leaving for the weekend). Needs `setModes locMode:"frost"` REST or `deviceFrost` GraphQL. |
+| **"Vacation Mode" Switch** (location-wide holiday) | ✅ shipped v3.6.0 | ~1.5 h | Toggle to set every room into holiday mode at frost-low (5 °C × 365 days). State reflects from any room's `runMode === 'holiday'`. |
+| **"Frost Protection" Switch** (location-wide frost) | ✅ shipped v3.6.0 | ~1 h | Toggle for passive minimum heat across the location via `deviceFrost(lid)` / `deviceProgram(lid)`. State reflects from `runMode === 'anti_frost'`. |
 | **`StatusActive` characteristic from `lastPoll`** | ✅ shipped v3.4.0 | ~30 min | Home app shows accessory as "Not Responding" if the thermostat hasn't checked in for >20 min. |
 | **`outputStatus` for accurate heating state** | ✅ shipped v3.4.0 | ~30 min + live test | `CurrentHeatingCoolingState=HEAT` reflects actual relay state, not the `currentTemp<targetTemp` heuristic. *Note: re-adding `parameters { outputStatus }` to the GraphQL query worked cleanly with `user.owned[].rooms[]` — the v3-era 409 was specific to the old `user.location(id:)` path.* |
 | **`RemainingDuration` characteristic** | ✅ shipped v3.4.0 | ~30 min | HomeKit / Eve countdown for active overrides. |
