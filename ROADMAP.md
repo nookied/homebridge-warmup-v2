@@ -220,9 +220,9 @@ A grab bag of features ranging from purely additive (no GraphQL changes) to "nee
 | **Defensive: 0-room poll doesn't unregister cache** | ✅ shipped v3.3.0 | ~30 min | A transient Warmup API hiccup no longer rips users' HomeKit tiles out of rooms / scenes. |
 | **Holiday mode as a HomeKit Switch** | open | ~2 h | Toggle to set the whole location into vacation mode at a defined frost-low temp. Needs new `deviceHoliday` GraphQL mutation. |
 | **Per-location Frost mode as a HomeKit Switch** | open | ~1 h | One-tap "frost protection" (e.g. leaving for the weekend). Needs `setModes locMode:"frost"` REST or `deviceFrost` GraphQL. |
-| **`StatusActive` characteristic from `lastPoll`** | open | ~30 min | Home app shows accessory as "offline" if the thermostat hasn't checked in for >20 min. Data already in `normalizeRoom`. |
-| **`outputStatus` for accurate heating state** | open (risky) | ~30 min + live test | `CurrentHeatingCoolingState=HEAT` reflects actual relay state, not the `currentTemp<targetTemp` heuristic. **Requires re-adding `parameters { outputStatus }` to the GraphQL query — caused a 409 in v3 development; needs careful retry.** |
-| **`RemainingDuration` characteristic** | open | ~30 min | Home shows "Override active for N minutes" with countdown. Data already in `normalizeRoom` (`overrideDur`). |
+| **`StatusActive` characteristic from `lastPoll`** | ✅ shipped v3.4.0 | ~30 min | Home app shows accessory as "Not Responding" if the thermostat hasn't checked in for >20 min. |
+| **`outputStatus` for accurate heating state** | ✅ shipped v3.4.0 | ~30 min + live test | `CurrentHeatingCoolingState=HEAT` reflects actual relay state, not the `currentTemp<targetTemp` heuristic. *Note: re-adding `parameters { outputStatus }` to the GraphQL query worked cleanly with `user.owned[].rooms[]` — the v3-era 409 was specific to the old `user.location(id:)` path.* |
+| **`RemainingDuration` characteristic** | ✅ shipped v3.4.0 | ~30 min | HomeKit / Eve countdown for active overrides. |
 | **`Eve.Energy.TotalConsumption` from `room.energy`** | open | ~1 h | Eve graphs of energy use over time. Needs Eve characteristic UUIDs (or `homebridge-lib`). |
 | **`FirmwareRevision` from `appFw`** | open | ~30 min + GraphQL change | Real device firmware version on the (i) info card. Needs `appFw` added to the GraphQL query. |
 | **Sensor offsets via Eve admin tab** | open | ~2 h | Calibrate floor probe ±1°C without the Warmup app. Needs Eve characteristic UUIDs + `deviceAdvanced` mutation. |

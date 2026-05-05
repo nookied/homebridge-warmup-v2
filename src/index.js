@@ -254,6 +254,12 @@ function attachAccessoryServices(platform, accessory, room) {
   thermo.getCharacteristic(Characteristic.CurrentTemperature)
     .setProps({ minValue: -100, maxValue: 100 });
 
+  // RemainingDuration default range is 0–3600 (1 h); Warmup overrides can
+  // run up to 24 h (`MAX_DURATION_MINUTES`). Widen the range so HomeKit
+  // doesn't clamp the value mid-override.
+  thermo.getCharacteristic(Characteristic.RemainingDuration)
+    .setProps({ minValue: 0, maxValue: MAX_DURATION_MINUTES * 60 });
+
   // Eve / fakegato history graphs (Roadmap M5).
   // The 'thermo' history type records currentTemp + setTemp + valvePosition
   // every poll; Eve.app renders the result. We disable fakegato's auto-timer
@@ -313,6 +319,14 @@ function pushRoomState(accessory, room) {
   // .getCharacteristic on an optional characteristic auto-adds it.
   thermo.getCharacteristic(Characteristic.StatusFault)
     .updateValue(deriveStatusFault(room));
+  // StatusActive: false ("Not Responding") if the device hasn't checked in
+  // recently. Warmup's `lastPoll` is minutes since last contact.
+  thermo.getCharacteristic(Characteristic.StatusActive)
+    .updateValue(deriveStatusActive(room));
+  // RemainingDuration: how long an override has left, in seconds. HomeKit
+  // surfaces this as a countdown on the thermostat tile in some clients.
+  thermo.getCharacteristic(Characteristic.RemainingDuration)
+    .updateValue(deriveRemainingDuration(room));
   temp.getCharacteristic(Characteristic.CurrentTemperature)
     .updateValue(Number(room.airTemp / 10));
 
@@ -431,6 +445,23 @@ function effectiveTargetTemp(room) {
 function deriveStatusFault(room) {
   const anyFault = room.isFaultAir || room.isFaultFloor1 || room.isFaultFloor2;
   return anyFault ? Characteristic.StatusFault.GENERAL_FAULT : Characteristic.StatusFault.NO_FAULT;
+}
+
+// HAP StatusActive: boolean. False = HomeKit shows "Not Responding". Warmup's
+// `lastPoll` is minutes since the device last checked in; >20 min = stale.
+// If the field is missing (older fork or partial response), we err on the
+// side of "active" — better than a stale device showing as Not Responding
+// when it's actually fine but the API didn't include lastPoll.
+const STALE_LAST_POLL_MIN = 20;
+function deriveStatusActive(room) {
+  if (typeof room.lastPoll !== 'number') return true;
+  return room.lastPoll <= STALE_LAST_POLL_MIN;
+}
+
+// HAP RemainingDuration: seconds (uint32). Warmup's `overrideDur` is in
+// minutes; convert. Defaults to 0 when no override active.
+function deriveRemainingDuration(room) {
+  return Math.max(0, Math.round(((room.overrideDur || 0) * 60)));
 }
 
 function uuidForRoom(roomId) {

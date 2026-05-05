@@ -33,6 +33,49 @@ describe('deriveCurrentHeatingState', () => {
   test.each(cases)('runMode=%s curr=%i target=%i → %i (%s)', (runMode, currentTemp, targetTemp, expected) => {
     expect(deriveCurrentHeatingState({ runMode, currentTemp, targetTemp })).toBe(expected);
   });
+
+  // outputStatus (relay state) takes precedence over the temp-delta heuristic
+  // when present in the room payload (M6 batch 2 — v3.4.0).
+  describe('outputStatus relay signal (preferred over heuristic)', () => {
+    test('outputStatus=1 → HEAT even when currentTemp >= targetTemp', () => {
+      // Heuristic alone would say 0; relay says 1. Trust the relay.
+      expect(deriveCurrentHeatingState({
+        runMode: 'schedule', currentTemp: 230, targetTemp: 200, outputStatus: 1
+      })).toBe(1);
+    });
+
+    test('outputStatus=0 → idle even when currentTemp < targetTemp', () => {
+      // Heuristic alone would say 1; relay says 0 (e.g. just-finished cycle).
+      // Trust the relay.
+      expect(deriveCurrentHeatingState({
+        runMode: 'schedule', currentTemp: 150, targetTemp: 200, outputStatus: 0
+      })).toBe(0);
+    });
+
+    test('outputStatus=non-zero (any value) → HEAT', () => {
+      expect(deriveCurrentHeatingState({
+        runMode: 'schedule', currentTemp: 200, targetTemp: 200, outputStatus: 7
+      })).toBe(1);
+    });
+
+    test('outputStatus is ignored when runMode === off', () => {
+      expect(deriveCurrentHeatingState({
+        runMode: 'off', currentTemp: 150, targetTemp: 200, outputStatus: 1
+      })).toBe(0);
+    });
+
+    test('outputStatus = null falls through to the temp-delta heuristic', () => {
+      expect(deriveCurrentHeatingState({
+        runMode: 'schedule', currentTemp: 150, targetTemp: 200, outputStatus: null
+      })).toBe(1);
+    });
+
+    test('outputStatus = undefined (missing field) falls through to heuristic', () => {
+      expect(deriveCurrentHeatingState({
+        runMode: 'schedule', currentTemp: 250, targetTemp: 200
+      })).toBe(0);
+    });
+  });
 });
 
 describe('deriveTargetHeatingState', () => {

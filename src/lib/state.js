@@ -11,12 +11,15 @@
 //                                          | fil_pilote | gradual | relay | previous
 
 function deriveCurrentHeatingState(room) {
-  // OFF only when the device is genuinely off. For every other mode (including
-  // anti_frost and holiday — both still drive heating to a low setpoint) the
-  // signal is whether currentTemp is below targetTemp. Roadmap M6 will swap
-  // this for the more accurate `Thermostat4iE.parameters.outputStatus` relay
-  // signal once we re-add `parameters` to the GraphQL query.
+  // OFF only when the device is genuinely off — even when heating to a low
+  // setpoint (`anti_frost`, `holiday`), the relay can still be active.
   if (room.runMode === 'off') return 0;
+  // Real relay state from `Thermostat4iE.parameters.outputStatus` is the
+  // most accurate signal. Fall back to the temp delta when it's not in the
+  // payload (older API responses, or rooms without a thermostat object).
+  if (typeof room.outputStatus === 'number') {
+    return room.outputStatus !== 0 ? 1 : 0;
+  }
   return room.currentTemp < room.targetTemp ? 1 : 0;
 }
 

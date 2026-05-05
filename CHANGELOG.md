@@ -7,6 +7,55 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.4.0] — 2026-05-05
+
+Roadmap [Milestone 6](ROADMAP.md) batch 2 — three additions, including the
+real "is currently heating" relay signal that's been pending since v3.0.
+
+### Added
+
+- **`parameters { outputStatus }` in the GraphQL query.** The schema's
+  relay-state field. Earlier in v3 development re-adding this caused
+  HTTP 409 — but that was specific to the old `user.location(id:)` path.
+  With the `user.owned[].rooms[].thermostat4ies[].parameters` shape we
+  use today, the gateway accepts it cleanly. Verified live before tagging.
+- **Real `CurrentHeatingCoolingState`.** `state.js` now prefers the
+  `outputStatus` relay signal when present:
+  - `outputStatus === 0` → idle (heating not active right now)
+  - `outputStatus !== 0` → heating
+  - field missing/null → falls through to the previous
+    `currentTemp < targetTemp` heuristic (backward compat)
+  Catches the cases the heuristic gets wrong: relay just turned off but
+  currentTemp still below target ("approaching cycle end"), or relay
+  active even though setpoint is already met (PID loop ramping down).
+- **`StatusActive` characteristic** on each Thermostat. False ("Not
+  Responding") if Warmup's `lastPoll` indicates the device hasn't
+  checked in for >20 min. Useful when a thermostat physically loses
+  power or Wi-Fi.
+- **`RemainingDuration` characteristic** on each Thermostat — countdown
+  in seconds for any active override. Some HomeKit clients render this
+  on the tile; Eve uses it for trend tracking. Range widened to 0–86400 s
+  (24 h, matches our `MAX_DURATION_MINUTES` limit) — HAP's default of
+  3600 s would clamp longer overrides mid-flight.
+
+### Tests
+
+- 95 total, 92 offline + 2 live + 1 destructive (skipped). Up from 89
+  in v3.3.0.
+- New: 6 `outputStatus` test cases in `state-derivers.test.js` covering
+  every combination of relay state / temp delta / runMode (relay
+  takes precedence except when off, missing field falls through to
+  heuristic).
+
+### Why this is a minor bump (not patch)
+
+`outputStatus` materially changes `CurrentHeatingCoolingState` semantics
+for users — heating-state graphs in Eve and the heating indicator in
+Apple Home will now reflect the actual relay rather than a heuristic.
+That's a user-visible behaviour change, even if it's an improvement.
+
+---
+
 ## [3.3.0] — 2026-05-05
 
 Roadmap [Milestone 6](ROADMAP.md) batch 1 — incremental polish. No GraphQL

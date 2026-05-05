@@ -65,6 +65,7 @@ const GQL_OWNED_AND_ROOMS = `
             isFaultAir
             isFaultFloor1
             isFaultFloor2
+            parameters { outputStatus }
           }
         }
       }
@@ -252,6 +253,7 @@ class Warmup4IE {
 // ---------------------------------------------------------------------------
 function normalizeRoom(r) {
   const t = (r.thermostat4ies && r.thermostat4ies[0]) || {};
+  const params = t.parameters || {};
   return {
     // GraphQL returns Room.id; the platform (legacy from REST) expects roomId.
     roomId: r.id,
@@ -285,7 +287,11 @@ function normalizeRoom(r) {
     isFaultFloor1: t.isFaultFloor1,
     isFaultFloor2: t.isFaultFloor2,
     deviceSN: t.deviceSN,
-    lastPoll: t.lastPoll
+    lastPoll: t.lastPoll,
+    // Real "is currently heating" relay signal — non-zero when the relay
+    // is closed. Used by `deriveCurrentHeatingState` in preference to the
+    // currentTemp<targetTemp heuristic when present.
+    outputStatus: typeof params.outputStatus === 'number' ? params.outputStatus : null
   };
 }
 

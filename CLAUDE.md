@@ -12,7 +12,7 @@ This file is the canonical persistent memory for this project. Any assistant/age
 **Repo:** [`https://github.com/nookied/homebridge-warmup4ie-v2`](https://github.com/nookied/homebridge-warmup4ie-v2) — **maintained fork**, published to npm under a distinct name
 **Original (abandoned reference):** [NorthernMan54/homebridge-warmup4ie](https://github.com/NorthernMan54/homebridge-warmup4ie) — broke at 0.1.0 in Dec 2024 and never fixed; do not pull from or push to it
 **License:** Apache-2.0 (preserved from original; LICENSE file added in 2.0.0)
-**Current version:** **3.3.0** (M6 batch 1 — `StatusFault`, `runMode` edge cases, empty-rooms guard; published 2026-05-05). Major v3 milestones: 3.0 GraphQL + per-room Off, 3.1 dynamic platform / Verified-eligible, 3.2 fakegato history, 3.3 sensor faults + runMode polish. Unreleased changes (if any) on `main` — check `git log v3.3.0..main`.
+**Current version:** **3.4.0** (M6 batch 2 — `outputStatus` relay signal, `StatusActive`, `RemainingDuration`; published 2026-05-05). Major v3 milestones: 3.0 GraphQL + per-room Off, 3.1 dynamic platform / Verified-eligible, 3.2 fakegato history, 3.3 sensor faults + runMode polish, 3.4 real heating signal + offline detection + override countdown. Unreleased changes (if any) on `main` — check `git log v3.4.0..main`.
 **Engines:** Homebridge `^1.6.0 || ^2.0.0`; Node `^18.20.4 || ^20.15.1 || ^22.0.0 || ^24.0.0`
 
 ### Fork rules
@@ -245,10 +245,11 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 ## Known issues / tech debt
 
 ### Open
-1. **`runMode` edge cases unhandled** — `state.js` falls through to `HEAT` for `anti_frost`, `holiday`, `gradual`, `fil_pilote`, `relay`, `previous`. Roadmap **M6** has more accurate mappings; not blocking today.
-2. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `deviceSN` today, but the plugin does not yet fetch/use enough reliable per-model metadata for all supported devices. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
-3. **`outputStatus` for accurate "is heating now"** — schema has `Thermostat4iE.parameters.outputStatus` (relay state), which is more accurate than the current `currentTemp < targetTemp` heuristic. Not in the GraphQL query today (was removed during the v3 live-test 409 debugging). Roadmap **M6**.
-4. **No `Eve.Energy.TotalConsumption` characteristic.** `room.energy` (kWh) and `room.cost` are surfaced in the normalized room shape but not exposed to Eve yet. Adding them needs Eve characteristic UUIDs (or `homebridge-lib`'s `EveHomeKitTypes`). Roadmap **M6**. Temperature/heating history graphs (the headline "Eve graphs" deliverable) shipped in v3.2.0.
+1. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `deviceSN` today, but the plugin does not yet fetch/use enough reliable per-model metadata for all supported devices. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
+2. **No `FirmwareRevision` from device firmware.** Currently set to `PLUGIN_VERSION`. The schema has `Thermostat4iE.appFw` / `wifiFw` — adding `appFw` to the GraphQL query and using it would show real device firmware on the (i) info card. Roadmap **M6**.
+3. **No `Eve.Energy.TotalConsumption` characteristic.** `room.energy` (kWh) and `room.cost` are surfaced in the normalized room shape but not exposed to Eve yet. Adding them needs Eve characteristic UUIDs (or `homebridge-lib`'s `EveHomeKitTypes`). Roadmap **M6**. Temperature/heating history graphs (the headline "Eve graphs" deliverable) shipped in v3.2.0.
+4. **No HomeKit Switches for Holiday / Frost mode.** Quick toggles for vacation mode would need new GraphQL mutations (`deviceHoliday`, `setModes locMode:"frost"`). Roadmap **M6**.
+5. **No `deviceAdvanced` integration** — child lock, brightness, sensor offsets all live behind the `deviceAdvanced` mutation. Roadmap **M6**.
 
 ### Resolved
 - **v2.0:** restored `setRoomOff` body (regression in upstream 0.1.0); restored local-time `until` (regression in 0.1.0); native fetch (deprecated `request` removed); full test suite; CI; LICENSE; rebrand as `homebridge-warmup4ie-v2`.
@@ -258,6 +259,7 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 - **v3.1:** dynamic platform (`registerPlatform(.., true)`, `configureAccessory`, `discoverDevices`, `reconcileAccessories`); cached-accessory restoration survives Warmup-cloud outages at boot; stable per-room UUIDs; `Warmup4ieAccessory` class replaced by free functions on `PlatformAccessory`. **All Verified-Plugin requirements now met** — application queued as Roadmap M7.
 - **v3.2:** `fakegato-history@^0.6.7` re-introduced for Eve.app temperature/heating-state history graphs. Per-thermostat `'thermo'` history service; per-poll entry of `{currentTemp, setTemp, valvePosition}`; `valvePosition` synthesized from heating state. Energy characteristics deferred to M6.
 - **v3.3 (M6 batch 1):** `StatusFault` characteristic on Thermostat (sensor diagnostics from existing `isFault*` data); `runMode` edge cases handled in `state.js` (`holiday` and `anti_frost` → OFF, `gradual` → AUTO, rest fall through to HEAT); defensive guard against transient empty-rooms responses (prevents nuking the cache on a single bad poll).
+- **v3.4 (M6 batch 2):** `parameters { outputStatus }` re-added to the GraphQL query — verified live the v3-era 409 was specific to `user.location(id:)`, not to the `parameters` field itself; `deriveCurrentHeatingState` now uses the actual relay state when present, falling back to the temp-delta heuristic; `StatusActive` characteristic from `lastPoll` (>20 min stale → Not Responding); `RemainingDuration` characteristic from `overrideDur` (range widened to 24 h to match our `MAX_DURATION_MINUTES`).
 
 ### By design (won't fix)
 - **First location only.** `_fetchRooms` takes `user.owned[0]`. If you have multiple Warmup locations on one account (e.g. primary residence + holiday home), only the first one is exposed. To expose a second location, run a second Homebridge child bridge with another account. A `location: "name"` config option to filter by name is feasible and would mirror the Python reference, but isn't planned.
