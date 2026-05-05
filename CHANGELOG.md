@@ -7,6 +7,47 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.9.1] — 2026-05-05
+
+Hotfix for a v3.8.0 regression that surfaced once HAP-NodeJS 2.1.5
+landed on user devices: the `Characteristic.Formats` static accessor
+was removed in newer HAP-NodeJS, and v3.8.0+ referenced
+`Characteristic.Formats.FLOAT` directly inside the
+`EveTotalConsumption` constructor. The first time HAP instantiated the
+class, the plugin crashed with `Cannot read properties of undefined
+(reading 'FLOAT')` and the child bridge died on every restart.
+
+### Fixed
+
+- **`Characteristic.Formats.FLOAT` crash on HAP-NodeJS 2.1.5+** (e.g.
+  Homebridge 2.0.1). New `src/lib/hap-compat.js` resolves Formats and
+  Perms enums through a fallback chain: `homebridge.hap.Formats` (modern
+  HAP-NodeJS top-level) → `Characteristic.Formats` (older static
+  accessor) → HAP-spec string literals (stable wire-format values that
+  never change). The Eve.Energy.TotalConsumption custom characteristic
+  now constructs cleanly across every HAP-NodeJS version we support.
+
+### Tests
+
+- New `test/unit/eve-characteristic.test.js` (5 tests) covers the
+  Formats/Perms resolution chain end-to-end, including the regression
+  case where neither accessor is exposed. **121 offline tests now pass
+  (up from 116 in v3.9.0).**
+
+### Why we missed it in 3.9.0
+
+The class definition was wrapped in try/catch — but the catch only fires
+if the *definition* throws. The bug fires inside the *constructor* when
+HAP later instantiates the class. The mock `Characteristic` in the
+existing platform-state tests is a plain object (not a class), so
+`class extends Characteristic` would throw at definition time, hit the
+catch, set `EveTotalConsumption = null`, and the constructor was never
+exercised in tests. CI was green; the manual QA step on a real
+Homebridge would have caught it but was skipped during the rapid 3.7.1
+→ 3.8.0 → 3.9.0 release lap.
+
+---
+
 ## [3.9.0] — 2026-05-05
 
 Post-release review pass (Codex). Three correctness fixes that surface

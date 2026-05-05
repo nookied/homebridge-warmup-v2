@@ -18,6 +18,7 @@ const debug = require('debug')('warmup4ie');
 const { Warmup4IE } = require('./lib/warmup4ie');
 const { deriveCurrentHeatingState, deriveTargetHeatingState } = require('./lib/state');
 const { deriveFirmwareRevision, deriveTotalConsumption } = require('./lib/metadata');
+const { resolveFormats, resolvePerms } = require('./lib/hap-compat');
 const { version: PLUGIN_VERSION, name: PLUGIN_NAME } = require('../package.json');
 
 const PLATFORM_NAME = 'warmup4ie';
@@ -46,6 +47,12 @@ module.exports = function (homebridge) {
   PlatformAccessoryCtor = homebridge.platformAccessory;
   uuid = homebridge.hap.uuid;
 
+  // HAP Formats/Perms enums have moved around across HAP-NodeJS versions.
+  // Resolve them through a small compat layer that falls back to the HAP
+  // wire-format spec strings — see src/lib/hap-compat.js for the why.
+  const Formats = resolveFormats(homebridge);
+  const Perms = resolvePerms(homebridge);
+
   // Define the Eve.Energy.TotalConsumption custom characteristic. The UUID
   // is well-known and shared across Eve-aware Homebridge plugins; Eve.app
   // reads anything with this UUID as a "Total Consumption" series.
@@ -63,11 +70,11 @@ module.exports = function (homebridge) {
         // to 0 every poll, making the graph plateau until a full kWh ticks
         // over.
         this.setProps({
-          format: Characteristic.Formats.FLOAT,
+          format: Formats.FLOAT,
           unit: 'kWh',
           minValue: 0,
           maxValue: 1000000000,
-          perms: [Characteristic.Perms.PAIRED_READ, Characteristic.Perms.NOTIFY]
+          perms: [Perms.PAIRED_READ, Perms.NOTIFY]
         });
         this.value = this.getDefaultValue();
       }

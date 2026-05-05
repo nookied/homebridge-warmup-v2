@@ -12,7 +12,7 @@ This file is the canonical persistent memory for this project. Any assistant/age
 **Repo:** [`https://github.com/nookied/homebridge-warmup4ie-v2`](https://github.com/nookied/homebridge-warmup4ie-v2) — **maintained fork**, published to npm under a distinct name
 **Original (abandoned reference):** [NorthernMan54/homebridge-warmup4ie](https://github.com/NorthernMan54/homebridge-warmup4ie) — broke at 0.1.0 in Dec 2024 and never fixed; do not pull from or push to it
 **License:** Apache-2.0 (preserved from original; LICENSE file added in 2.0.0)
-**Current version:** **3.9.0** (Codex post-release review fixes — debounced target-temp promises now settle every caller, shutdown flushes pending writes, stale location switches reconciled, metadata helpers extracted to `src/lib/metadata.js` for testability, live-test `runMode` enum widened; published 2026-05-05). Major v3 milestones: 3.0 GraphQL + per-room Off, 3.1 dynamic platform / Verified-eligible, 3.2 fakegato history, 3.3 sensor faults + runMode polish, 3.4 real heating signal + offline detection + override countdown, 3.5 Eve energy graphs + device firmware, 3.6 Vacation/Frost switches, 3.7 child lock, 3.8 validation polish, 3.9 review-pass correctness fixes. Unreleased changes (if any) on `main` — check `git log v3.9.0..main`.
+**Current version:** **3.9.1** (hotfix — `Characteristic.Formats.FLOAT` crash on HAP-NodeJS 2.1.5+ via new `src/lib/hap-compat.js` resolution chain; published 2026-05-05). v3.9.0 regressed on Homebridge 2.0.1 / HAP 2.1.5 because the static `Characteristic.Formats` accessor was removed in newer HAP-NodeJS and the EveTotalConsumption constructor crashed on first instantiation. Major v3 milestones: 3.0 GraphQL + per-room Off, 3.1 dynamic platform / Verified-eligible, 3.2 fakegato history, 3.3 sensor faults + runMode polish, 3.4 real heating signal + offline detection + override countdown, 3.5 Eve energy graphs + device firmware, 3.6 Vacation/Frost switches, 3.7 child lock, 3.8 validation polish, 3.9 review-pass correctness fixes, 3.9.1 HAP version hotfix. Unreleased changes (if any) on `main` — check `git log v3.9.1..main`.
 **Engines:** Homebridge `^1.6.0 || ^2.0.0`; Node `^18.20.4 || ^20.15.1 || ^22.0.0 || ^24.0.0`
 
 ### Fork rules
@@ -69,9 +69,12 @@ homebridge-warmup4ie-v2/
 │       ├── state.js                          Pure HeatingCoolingState derivers (no HAP types)
 │       │   ├── deriveCurrentHeatingState(room)
 │       │   └── deriveTargetHeatingState(room)
-│       └── metadata.js                       Pure HomeKit metadata/energy derivers
-│           ├── deriveFirmwareRevision(room, fallback)
-│           └── deriveTotalConsumption(room)
+│       ├── metadata.js                       Pure HomeKit metadata/energy derivers
+│       │   ├── deriveFirmwareRevision(room, fallback)
+│       │   └── deriveTotalConsumption(room)
+│       └── hap-compat.js                     HAP-NodeJS Formats/Perms resolution
+│           ├── resolveFormats(homebridge)         → modern top-level | legacy static | spec strings
+│           └── resolvePerms(homebridge)           → modern top-level | legacy static | spec strings
 │
 ├── test/
 │   ├── unit/
@@ -307,6 +310,7 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 | `src/lib/warmup4ie.js` | Warmup cloud API client (REST login, GraphQL everything else) |
 | `src/lib/state.js` | Pure HeatingCoolingState derivers (testable in isolation) |
 | `src/lib/metadata.js` | Pure firmware-revision and Eve total-consumption derivers |
+| `src/lib/hap-compat.js` | HAP-NodeJS Formats/Perms resolution with version-tolerant fallbacks |
 | `test/unit/_fetch.test.js` | Generic fetch + REST + GraphQL transport + token-error pattern |
 | `test/unit/wire-format.test.js` | GraphQL mutation + variables shape assertions |
 | `test/unit/state-derivers.test.js` | Truth tables for the two heating-state derivers |
