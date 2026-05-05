@@ -14,7 +14,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nookied/homebridge-warmup4ie.git"
+    "url": "git+https://github.com/nookied/homebridge-warmup4ie-v2.git"
   },
   "keywords": [
     "homebridge-plugin",
