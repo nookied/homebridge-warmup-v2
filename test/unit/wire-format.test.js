@@ -48,10 +48,18 @@ describe('GraphQL wire-format builders', () => {
       await client.setTargetTemperature(1, 18);
       await client.setTargetTemperature(1, 22.5);
       await client.setTargetTemperature(1, 5);
+      await client.setTargetTemperature(1, 19.9);
 
       expect(captured[0].variables.temperature).toBe(180);
       expect(captured[1].variables.temperature).toBe(225);
       expect(captured[2].variables.temperature).toBe(50);
+      expect(captured[3].variables.temperature).toBe(199);
+    });
+
+    test('rejects non-numeric target temperatures before hitting GraphQL', async () => {
+      const { client, captured } = stubGraphQLClient(Warmup4IE);
+      await expect(client.setTargetTemperature(1, 'not-a-number')).rejects.toThrow(/Invalid target temperature/);
+      expect(captured).toHaveLength(0);
     });
 
     test('duration is sent verbatim as minutes (regression sentinel: v2 had UTC HH:MM bug)', async () => {
@@ -77,26 +85,26 @@ describe('GraphQL wire-format builders', () => {
     });
   });
 
-  describe('cache invalidation', () => {
-    test('setRoomOff invalidates the targeted roomId', async () => {
+  describe('write cache behaviour', () => {
+    test('setRoomOff preserves the last known room snapshot until the next poll', async () => {
       const { client } = stubGraphQLClient(Warmup4IE);
       client.room[123] = { roomId: 123, runMode: 'schedule' };
       await client.setRoomOff(123);
-      expect(client.room[123]).toBeNull();
+      expect(client.room[123]).toEqual({ roomId: 123, runMode: 'schedule' });
     });
 
-    test('setTargetTemperature invalidates the targeted roomId', async () => {
+    test('setTargetTemperature preserves the last known room snapshot until the next poll', async () => {
       const { client } = stubGraphQLClient(Warmup4IE);
       client.room[456] = { roomId: 456, runMode: 'schedule', targetTemp: 200 };
       await client.setTargetTemperature(456, 21);
-      expect(client.room[456]).toBeNull();
+      expect(client.room[456]).toEqual({ roomId: 456, runMode: 'schedule', targetTemp: 200 });
     });
 
-    test('setRoomAuto invalidates the targeted roomId', async () => {
+    test('setRoomAuto preserves the last known room snapshot until the next poll', async () => {
       const { client } = stubGraphQLClient(Warmup4IE);
       client.room[789] = { roomId: 789, runMode: 'fixed' };
       await client.setRoomAuto(789);
-      expect(client.room[789]).toBeNull();
+      expect(client.room[789]).toEqual({ roomId: 789, runMode: 'fixed' });
     });
   });
 });

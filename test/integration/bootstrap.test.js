@@ -67,6 +67,27 @@ describe('Warmup4IE constructor bootstrap (REST login + GraphQL owned[])', () =>
     });
   });
 
+  test('login without token → callback receives a clear error, no GraphQL calls follow', () => {
+    let calls = 0;
+    restoreFetch = sequencedFetch([
+      { url: REST_URL, body: { status: { result: 'success' }, response: {} } }
+    ]);
+    const orig = globalThis.fetch;
+    globalThis.fetch = jest.fn(async (...args) => { calls++; return orig(...args); });
+
+    return new Promise((resolve) => {
+      new Warmup4IE(
+        { username: 'u', password: 'p', refresh: 60, duration: 60 },
+        (err) => {
+          expect(err).toBeInstanceOf(Error);
+          expect(err.message).toMatch(/login response did not include a token/);
+          expect(calls).toBe(1);
+          resolve();
+        }
+      );
+    });
+  });
+
   test('owned[] empty → callback receives "No locations" error', () => {
     restoreFetch = sequencedFetch([
       { url: REST_URL, body: loadFixture('userLogin.success.json') },

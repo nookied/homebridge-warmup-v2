@@ -5,9 +5,9 @@
 //
 // Each Warmup "room" is exposed as a HomeKit Thermostat (primary) plus a
 // paired TemperatureSensor for the air-temp probe. Static accessory platform
-// (legacy `accessories(callback)` flow) — Homebridge v2 still supports this.
-// A migration to dynamic platform is planned in v3.1 (Roadmap M4); see
-// ROADMAP.md for the broader development plan.
+// (legacy `accessories(callback)` flow) — Homebridge still supports this, but
+// the Verified Plugin programme now requires a dynamic platform. That larger
+// migration is tracked in ROADMAP.md M4.
 
 'use strict';
 
@@ -17,10 +17,14 @@ const { deriveCurrentHeatingState, deriveTargetHeatingState } = require('./lib/s
 const { version: PLUGIN_VERSION, name: PLUGIN_NAME } = require('../package.json');
 
 const SLIDER_DEBOUNCE_MS = 300;
+const DEFAULT_REFRESH_SECONDS = 60;
+const MIN_REFRESH_SECONDS = 30;
+const MAX_REFRESH_SECONDS = 600;
+const DEFAULT_DURATION_MINUTES = 60;
+const MIN_DURATION_MINUTES = 5;
+const MAX_DURATION_MINUTES = 1440;
 
 let Service, Characteristic, HapStatusError, HAPStatus;
-const myAccessories = [];
-let thermostats;
 
 module.exports = function (homebridge) {
   Service = homebridge.hap.Service;
@@ -34,47 +38,87 @@ module.exports = function (homebridge) {
   homebridge.registerPlatform(PLUGIN_NAME, 'warmup4ie', warmup4iePlatform);
 };
 
-function warmup4iePlatform(log, config /* , api */) {
+function warmup4iePlatform(log, config = {}, api) {
   this.username = config.username;
   this.password = config.password;
-  this.refresh = config.refresh || 60;   // polling interval, seconds
-  this.duration = config.duration || 60; // override duration, minutes
+  this.refresh = boundedInteger(config.refresh, DEFAULT_REFRESH_SECONDS, MIN_REFRESH_SECONDS, MAX_REFRESH_SECONDS);
+  this.duration = boundedInteger(config.duration, DEFAULT_DURATION_MINUTES, MIN_DURATION_MINUTES, MAX_DURATION_MINUTES);
   this.log = log;
+  this.thermostats = null;
+  this._accessories = [];
+  this._accessoryByRoomId = new Map();
+  this._pollTimer = null;
+
+  if (api && typeof api.on === 'function') {
+    api.on('shutdown', () => this.shutdown());
+  }
 }
 
 warmup4iePlatform.prototype = {
   accessories: function (callback) {
+    if (!hasRequiredConfig(this)) {
+      this.log.error('Warmup4ie is not configured: username and password are required.');
+      callback([]);
+      return;
+    }
+
     this.log.info('Logging into warmup4ie...');
 
-    thermostats = new Warmup4IE(this, (err, rooms) => {
+    this.thermostats = new Warmup4IE(this, (err, rooms) => {
       if (err) {
         this.log.error('Warmup login/initial fetch failed:', err.message);
+        this.thermostats = null;
         callback([]);
         return;
       }
       this.log.info('Found %s room(s)', rooms.length);
-      rooms.forEach((room) => {
+      this._accessoryByRoomId.clear();
+      this._accessories = rooms.map((room) => {
         this.log.info('Adding %s', room.roomName);
-        myAccessories.push(new Warmup4ieAccessory(this, room.roomName, thermostats.room[room.roomId]));
+        const accessory = new Warmup4ieAccessory(this, room.roomName, this.thermostats.room[room.roomId]);
+        this._accessoryByRoomId.set(room.roomId, accessory);
+        return accessory;
       });
-      callback(myAccessories);
+      callback(this._accessories);
+      this.startPolling();
     });
+  },
 
-    setInterval(async () => {
+  startPolling: function () {
+    this.shutdown();
+
+    this._pollTimer = setInterval(async () => {
       try {
-        await thermostats.getStatus();
-        thermostats.room.forEach((room) => {
-          if (room) updateStatus(room);
+        if (!this.thermostats) return;
+        const rooms = await this.thermostats.getStatus();
+        rooms.forEach((room) => {
+          updateStatus(this, room);
         });
       } catch (err) {
         this.log.error('Warmup poll failed:', err.message);
       }
     }, this.refresh * 1000);
+  },
+
+  shutdown: function () {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
   }
 };
 
-function getAccessory(accessories, roomId) {
-  return accessories.find((accessory) => accessory.roomId === roomId);
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function hasRequiredConfig(platform) {
+  return typeof platform.username === 'string' &&
+    platform.username.trim().length > 0 &&
+    typeof platform.password === 'string' &&
+    platform.password.length > 0;
 }
 
 // Warmup's API can return targetTemp below the device's configured minimum
@@ -84,8 +128,8 @@ function effectiveTargetTemp(room) {
   return room.targetTemp > room.minTemp ? room.targetTemp : room.minTemp;
 }
 
-function updateStatus(room) {
-  const acc = getAccessory(myAccessories, room.roomId);
+function updateStatus(platform, room) {
+  const acc = platform._accessoryByRoomId.get(room.roomId);
   if (!acc) return;
 
   // Refresh the per-accessory snapshot so .runMode-dependent setters see fresh state.
@@ -126,6 +170,7 @@ function asHapStatusError(err) {
 }
 
 function Warmup4ieAccessory(that, name, room) {
+  this.platform = that;
   this.log = that.log;
   this.log.info('Adding warmup4ie Device %s', name);
   this.name = name;
@@ -144,14 +189,14 @@ Warmup4ieAccessory.prototype = {
     try {
       switch (value) {
         case 0: // Off — per-room since v3 (was location-wide in v2 due to API limit)
-          await thermostats.setRoomOff(this.roomId);
+          await this.platform.thermostats.setRoomOff(this.roomId);
           break;
         case 1: // Heat — keep override/fixed if already set, otherwise resume schedule
           if (this.room.runMode === 'fixed' || this.room.runMode === 'override') return;
-          await thermostats.setRoomAuto(this.roomId);
+          await this.platform.thermostats.setRoomAuto(this.roomId);
           break;
         case 3: // Auto
-          await thermostats.setRoomAuto(this.roomId);
+          await this.platform.thermostats.setRoomAuto(this.roomId);
           break;
       }
     } catch (err) {
@@ -170,7 +215,7 @@ Warmup4ieAccessory.prototype = {
     return new Promise((resolve, reject) => {
       this._timers.targetTemp = setTimeout(async () => {
         try {
-          await thermostats.setTargetTemperature(this.roomId, value);
+          await this.platform.thermostats.setTargetTemperature(this.roomId, value);
           resolve();
         } catch (err) {
           this.log.error('Set TargetTemperature for %s failed: %s', this.name, err.message);

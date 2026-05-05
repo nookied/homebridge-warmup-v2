@@ -20,6 +20,7 @@ const REQUEST_HEADERS = {
   'user-agent': 'WARMUP_APP',
   'accept-encoding': 'br, gzip, deflate',
   'accept': '*/*',
+  'connection': 'close',
   'content-type': 'application/json',
   'app-token': APP_TOKEN,
   'app-version': '1.8.1',
@@ -183,7 +184,11 @@ class Warmup4IE {
         appId: 'WARMUP-APP-V001'
       }
     });
-    this._token = json.response.token;
+    const token = json && json.response && json.response.token;
+    if (!token) {
+      throw new Error('Warmup API: login response did not include a token');
+    }
+    this._token = token;
   }
 
   // ---------------------------------------------------------------------------
@@ -201,9 +206,11 @@ class Warmup4IE {
 
     this._locId = first.id;
     const rooms = (first.rooms || []).map((r) => normalizeRoom(r));
+    const nextRoomCache = [];
     rooms.forEach((room) => {
-      this.room[room.roomId] = room;
+      nextRoomCache[room.roomId] = room;
     });
+    this.room = nextRoomCache;
     return rooms;
   }
 
@@ -216,7 +223,6 @@ class Warmup4IE {
   // ---------------------------------------------------------------------------
 
   async setRoomAuto(roomId) {
-    this.room[roomId] = null;
     return this._authenticatedGraphQL(GQL_DEVICE_PROGRAM, { lid: this._locId, rid: roomId });
   }
 
@@ -224,16 +230,14 @@ class Warmup4IE {
   // workaround). Tapping Off on one HomeKit thermostat now affects only that
   // room, matching the Warmup mobile app's per-room Off button.
   async setRoomOff(roomId) {
-    this.room[roomId] = null;
     return this._authenticatedGraphQL(GQL_DEVICE_OFF, { lid: this._locId, rid: roomId });
   }
 
   async setTargetTemperature(roomId, value) {
-    this.room[roomId] = null;
     return this._authenticatedGraphQL(GQL_DEVICE_OVERRIDE, {
       lid: this._locId,
       rid: roomId,
-      temperature: parseInt(value * 10, 10),
+      temperature: toWarmupTemperature(value),
       minutes: this._duration
     });
   }
@@ -277,6 +281,14 @@ function normalizeRoom(r) {
     deviceSN: t.deviceSN,
     lastPoll: t.lastPoll
   };
+}
+
+function toWarmupTemperature(value) {
+  const temperature = Number(value);
+  if (!Number.isFinite(temperature)) {
+    throw new Error(`Invalid target temperature: ${value}`);
+  }
+  return Math.round(temperature * 10);
 }
 
 module.exports = { Warmup4IE };

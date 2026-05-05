@@ -9,8 +9,28 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ## [Unreleased]
 
-Handoff polish — no functional change, no version bump warranted on its own.
-Will be folded into the next semver bump.
+Maintenance pass after the v3.0 GraphQL release. Includes bug fixes, cache
+correctness improvements, dependency-lock cleanup, and documentation refresh.
+
+### Fixed
+- **Platform instance isolation.** `src/index.js` no longer keeps
+  `thermostats` and the accessory list at module scope, so multiple platform
+  instances cannot route writes through the wrong Warmup client.
+- **Failed bootstrap / missing config polling.** Missing credentials and
+  login/initial-fetch failures now return no accessories without starting a
+  poll timer.
+- **Warmup room cache correctness.** `_fetchRooms()` now replaces the cache
+  each poll so rooms removed from the Warmup account do not linger, and write
+  methods preserve the last-known room snapshot when the API rejects a write.
+- **Temperature tenths rounding.** `setTargetTemperature()` now uses
+  `Math.round(value * 10)` so values like `19.9` become `199` instead of
+  occasionally truncating due to floating-point precision.
+- **Login token validation.** A successful-looking `userLogin` response
+  without `response.token` now fails with a clear error before any GraphQL
+  call.
+- **Live-test socket cleanup.** Warmup HTTP requests now send
+  `Connection: close`, which avoids native `fetch` leaving TLS handles open
+  after the live Jest suite finishes.
 
 ### Changed
 - **Doc + comment cleanup pass for handoff.** Stale comments referring to
@@ -25,11 +45,21 @@ Will be folded into the next semver bump.
   — the GraphQL query no longer fetches `parameters` (was dropped during
   the v3 live-test 409 debugging), so the field would always be undefined
   in production. Roadmap M6 will re-add it deliberately.
+- **Dependency lockfile refresh.** `package-lock.json` now matches the
+  package name/version and resolves dev-tool transitive advisories reported
+  by `npm audit`; production dependencies audit clean.
 
 ### Documentation
 - `package.json` `repository.url` invariant added to working rules and
   pre-release checklist (sigstore provenance is strict — hit a 422 once
   during the GitHub repo rename to `-v2`; documented to prevent recurrence).
+- `package.json`, `config.schema.json`, README install/development examples,
+  and troubleshooting text now point at `nookied/homebridge-warmup4ie-v2`
+  consistently.
+- README supported-model notes updated against current Warmup docs:
+  MyHeating/my.warmup.com remains the support boundary, 6iE is now
+  discontinued/replaced by 7iE, and 7iE users can choose native Matter
+  instead of this cloud plugin.
 - Roadmap M4 (dynamic platform), M5 (Eve / fakegato), M6 (sensor metadata
   + outputStatus) cross-referenced from CLAUDE.md known-issues.
 

@@ -36,8 +36,8 @@ homebridge-warmup4ie-v2/
 ├── src/
 │   ├── index.js                      Homebridge entry; registerPlatform + accessory glue
 │   │   ├── module.exports(homebridge)        Captures hap.{Service,Characteristic,HapStatusError,HAPStatus}
-│   │   ├── warmup4iePlatform                 Static platform (`accessories(callback)` flow)
-│   │   ├── updateStatus(room)                Pushes characteristics + refreshes per-acc snapshot
+│   │   ├── warmup4iePlatform                 Static platform (`accessories(callback)` flow), instance-scoped state
+│   │   ├── updateStatus(platform, room)      Pushes characteristics + refreshes per-acc snapshot
 │   │   ├── effectiveTargetTemp(room)         Clamps targetTemp to [minTemp, ∞)
 │   │   ├── asHapStatusError(err)             Maps Warmup errors → HAP status codes
 │   │   └── Warmup4ieAccessory                One per Warmup room:
@@ -73,8 +73,9 @@ homebridge-warmup4ie-v2/
 │   │   └── state-derivers.test.js            Truth tables for both derivers
 │   ├── integration/
 │   │   ├── bootstrap.test.js                 REST login → GraphQL owned[] → callback
-│   │   ├── poll.test.js                      getStatus refreshes cache
+│   │   ├── poll.test.js                      getStatus refreshes/replaces cache
 │   │   ├── error-recovery.test.js            Failed poll + 401 token-refresh sequence
+│   │   ├── platform-state.test.js            Missing config, failed bootstrap, multi-instance isolation
 │   │   └── homebridge-loadtime.test.js       registerPlatform smoke
 │   ├── live/
 │   │   └── api.test.js                       Opt-in: WARMUP_LIVE_TEST=1
@@ -234,16 +235,16 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 ## Known issues / tech debt
 
 ### Open
-1. **Static platform pattern** — uses 3-arg `registerPlatform(...)` (no `dynamic = true`), so accessories are returned via the `accessories(callback)` legacy flow. Cached accessories aren't supported; restarts re-create everything. HB v2 still supports this fully — not a bug, just a pattern choice. Required for Verified Plugin status. Roadmap **M4** addresses this.
-2. **Module-level `myAccessories` and `thermostats` in `src/index.js`** — these are file-scope, so two platform instances would clobber each other. Not a real-world issue today (Homebridge instantiates the platform once), but should move to instance fields when the dynamic-platform refactor (M4) lands.
-3. **`runMode` edge cases unhandled** — `state.js` falls through to `HEAT` for `anti_frost`, `holiday`, `gradual`, `fil_pilote`, `relay`, `previous`. Roadmap **M6** has more accurate mappings; not blocking today.
-4. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `appFw`, `wifiFw`, `deviceSN`, but we don't fetch them yet. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
-5. **`outputStatus` for accurate "is heating now"** — schema has `Thermostat4iE.parameters.outputStatus` (relay state), which is more accurate than the current `currentTemp < targetTemp` heuristic. Not in the GraphQL query today (was removed during the v3 live-test 409 debugging). Roadmap **M6**.
+1. **Static platform pattern** — uses 3-arg `registerPlatform(...)`, so accessories are returned via the `accessories(callback)` legacy flow. Cached accessories aren't supported; restarts re-create everything. Homebridge still supports static platforms, but current Verified Plugin requirements call for a dynamic platform. Roadmap **M4** addresses this.
+2. **`runMode` edge cases unhandled** — `state.js` falls through to `HEAT` for `anti_frost`, `holiday`, `gradual`, `fil_pilote`, `relay`, `previous`. Roadmap **M6** has more accurate mappings; not blocking today.
+3. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `deviceSN` today, but the plugin does not yet fetch/use enough reliable per-model metadata for all supported devices. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
+4. **`outputStatus` for accurate "is heating now"** — schema has `Thermostat4iE.parameters.outputStatus` (relay state), which is more accurate than the current `currentTemp < targetTemp` heuristic. Not in the GraphQL query today (was removed during the v3 live-test 409 debugging). Roadmap **M6**.
 
 ### Resolved
 - **v2.0:** restored `setRoomOff` body (regression in upstream 0.1.0); restored local-time `until` (regression in 0.1.0); native fetch (deprecated `request` removed); full test suite; CI; LICENSE; rebrand as `homebridge-warmup4ie-v2`.
 - **v2.1:** `config.schema.json`; token refresh on 401; HAP error categorization; debounced TargetTemperature; `.onSet(async)` modern handlers; instance state (was module-level); model-coverage doc fix.
 - **v3.0:** GraphQL transport (REST kept only for `userLogin`); per-room Off via `deviceOff(lid, rid)`; `deviceOverride` with explicit minutes (UTC-vs-local class of bugs eliminated forever); foundation for M5/M6 features.
+- **Unreleased:** `src/index.js` platform state is fully instance-scoped (`thermostats`, accessory list/map, poll timer); missing credentials and failed bootstrap do not start polling; write methods preserve last-known room cache on errors; `_fetchRooms` replaces the cache so removed rooms do not linger; target temperatures use `Math.round(value * 10)` instead of truncating floating-point tenths.
 
 ### By design (won't fix)
 - **First location only.** `_fetchRooms` takes `user.owned[0]`. If you have multiple Warmup locations on one account (e.g. primary residence + holiday home), only the first one is exposed. To expose a second location, run a second Homebridge child bridge with another account. A `location: "name"` config option to filter by name is feasible and would mirror the Python reference, but isn't planned.

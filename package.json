@@ -49,9 +49,9 @@
   "author": "Karol Nowacki (fork of NorthernMan54/homebridge-warmup4ie)",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/nookied/homebridge-warmup4ie/issues"
+    "url": "https://github.com/nookied/homebridge-warmup4ie-v2/issues"
   },
-  "homepage": "https://github.com/nookied/homebridge-warmup4ie#readme",
+  "homepage": "https://github.com/nookied/homebridge-warmup4ie-v2#readme",
   "nodemonConfig": {
     "watch": [
       "src"

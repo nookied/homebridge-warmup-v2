@@ -18,7 +18,7 @@ Anything that pairs with the **MyHeating app** (or signs into [my.warmup.com](ht
 | Model | Status | Notes |
 |---|---|---|
 | **[4iE Smart Wi-Fi](https://www.warmup.com/warmupedia/products/4ie-smart-wifi-thermostat)** | Discontinued (replaced by 6iE) | First Warmup Wi-Fi thermostat (~2014). Dual floor probes (`floor1Temp` + `floor2Temp`). |
-| **[6iE Smart Wi-Fi](https://www.warmup.com/6ie-smart-wifi)** | Active | Colour touch screen. Single floor probe. SSID ≤32 chars, password ≤15 chars (Warmup limitation). |
+| **[6iE Smart Wi-Fi](https://www.warmup.com/6ie-smart-wifi)** | Discontinued (replaced by 7iE) | Colour touch screen. Single floor probe. Existing installed units remain supported through MyHeating. |
 | **[7iE Smart Matter Wi-Fi](https://www.warmup.com/7ie-smart-matter-wifi-thermostat)** | Active (flagship) | Latest model; supports Matter natively (you may not need this plugin if you pair via Matter). |
 | **[Element Wi-Fi](https://www.warmup.co.uk/thermostats/smart/element-wifi-thermostat)** | Active | Touch-button entry-level smart thermostat. |
 | **[Terra Wi-Fi](https://www.warmup.com/thermostats/terra-wifi-thermostat)** | Active | Eco-line smart thermostat. |
@@ -47,7 +47,7 @@ Or via the Homebridge UI: search for **homebridge-warmup4ie-v2** in the plugin b
 To install straight from git instead of npm (e.g. to pin a specific commit):
 
 ```bash
-sudo npm install -g github:nookied/homebridge-warmup4ie
+sudo npm install -g github:nookied/homebridge-warmup4ie-v2#<sha>
 ```
 
 ## Configuration
@@ -130,10 +130,10 @@ On `homebridge-warmup4ie@0.1.0` or `0.1.1`? That version has the broken `setRoom
 The Warmup API rejected the call (e.g. invalid credentials, expired token, server error). Check the Homebridge log for `Warmup API: ...` errors. This plugin surfaces API-level errors instead of swallowing them; that's intentional — the original plugin would silently report success.
 
 ### Multi-location accounts
-This plugin uses the **first** location only (`locations[0].id`). If you have e.g. a primary residence + a holiday home on the same Warmup account, only the first one is exposed. Run a second Homebridge instance/child bridge with a different account to expose the other location.
+This plugin uses the **first** Warmup location returned by the GraphQL `user.owned[]` query. If you have e.g. a primary residence + a holiday home on the same Warmup account, only the first one is exposed. Run a second Homebridge instance/child bridge with a different account to expose the other location.
 
 ### "Wi-Fi Thermostat" shows as the model in Home app
-We currently set `Model = "Wi-Fi Thermostat"` because the Warmup REST API doesn't expose the per-thermostat model name. The GraphQL API does (`appFw`, `wifiFw`, `deviceModel`), and v3.0 will populate this with the real model. If you want the actual model badge today, you can edit the accessory in the Home app.
+We currently set `Model = "Wi-Fi Thermostat"` because Warmup's cloud payload is still legacy-shaped around `Thermostat4iE` and does not give this plugin a reliable marketing model name for every supported device. A future GraphQL metadata pass may use firmware/device fields where available. If you want the actual model badge today, you can edit the accessory in the Home app.
 
 ### `floor2Temp` is always 0 / null on my 6iE / Element / Terra
 That's expected — only the 4iE has dual floor probes. Single-probe models return null/zero for the unused channel.
@@ -147,8 +147,8 @@ sudo journalctl -u homebridge -f
 ## Development
 
 ```bash
-git clone https://github.com/nookied/homebridge-warmup4ie.git
-cd homebridge-warmup4ie
+git clone https://github.com/nookied/homebridge-warmup4ie-v2.git
+cd homebridge-warmup4ie-v2
 npm install
 npm run lint                  # ESLint
 npm test                      # Jest — unit + integration (no network)

@@ -40,7 +40,10 @@ describe('error recovery', () => {
 
   test('setRoomOff API error → rejects (no silent success)', async () => {
     const client = await bootstrap([{ url: GRAPHQL_URL, body: loadFixture('graphql.error.json') }]);
+    const before = { ...client.room[100001] };
+
     await expect(client.setRoomOff(100001)).rejects.toThrow(/Warmup GraphQL/);
+    expect(client.room[100001]).toEqual(before);
   });
 });
 

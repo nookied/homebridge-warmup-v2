@@ -47,4 +47,18 @@ describe('Warmup4IE polling', () => {
     const populated = client.room.filter((r) => r != null);
     expect(populated).toHaveLength(3);
   });
+
+  test('rooms removed from Warmup disappear from the cache on the next poll', async () => {
+    const updated = JSON.parse(JSON.stringify(loadFixture('graphql.owned.json')));
+    updated.data.user.owned[0].rooms = updated.data.user.owned[0].rooms.filter((room) => room.id !== 100002);
+
+    const client = await bootstrap([{ url: GRAPHQL_URL, body: updated }]);
+
+    expect(client.room[100002].roomName).toBe('Bedroom');
+
+    await client.getStatus();
+    expect(client.room[100001].roomName).toBe('Living Room');
+    expect(client.room[100002]).toBeUndefined();
+    expect(client.room[100003].roomName).toBe('Bathroom');
+  });
 });

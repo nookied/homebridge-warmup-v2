@@ -5,25 +5,25 @@ Living development plan for a Homebridge plugin that talks to **Warmup Wi-Fi und
 - **Homebridge / HAP-NodeJS docs** — plugin patterns, Verified requirements, modern characteristic APIs
 - **Warmup cloud API** — full reverse-engineering trail across `alex-0103/warmup4IE` (Python REST), `ha-warmup/warmup` (richer GraphQL), `openhab/openhab-addons` warmup binding (Java GraphQL), and `jondarrer/warmup-api` (full introspected GraphQL schema, 3113 lines)
 
-The audit unlocked a **major architectural finding**: the API endpoint we use (`api.warmup.com/apps/app/v1`, REST) is a thin legacy facade. The canonical Warmup API is **GraphQL** at `https://apil.warmup.com/graphql` — same `app-token` works, and it exposes everything (per-room off, holiday mode, energy/cost charts, schedule edit, sensor offsets, child lock) that the REST surface either fakes or omits entirely.
+The audit unlocked a **major architectural finding**: the REST API endpoint used by v2 (`api.warmup.com/apps/app/v1`) is a thin legacy facade. v3 now keeps REST only for `userLogin` and uses the canonical Warmup **GraphQL** API at `https://apil.warmup.com/graphql` for reads/writes — same `app-token`, with access-token auth moved to the `warmup-authorization` header.
 
 ---
 
 ## TL;DR — three bets
 
-1. **Switch transport to GraphQL** (`apil.warmup.com/graphql`). Keep REST only for `userLogin`. Unlocks per-room off, holiday mode, energy/cost charts, sensor faults, schedule introspection, multi-location iteration, override duration in minutes (not local-time HH:MM), and ~30 other endpoints. *Source of truth: [`jondarrer/warmup-api/warmup-schema.graphql`](https://github.com/jondarrer/warmup-api/blob/main/warmup-schema.graphql).*
-2. **Migrate to Dynamic Platform.** Required for Homebridge Verified. Fixes "accessories rebuilt every restart" reset behaviour and unlocks fakegato-history.
-3. **Ship `config.schema.json`** so users get a form-based config editor in the Homebridge UI. Required for Verified. ~30 minutes of work.
+1. **GraphQL transport is shipped** (`apil.warmup.com/graphql`), with REST kept only for `userLogin`. It unlocked per-room off and explicit override duration in minutes. More GraphQL-only features remain available for later milestones. *Source of truth: [`jondarrer/warmup-api/warmup-schema.graphql`](https://github.com/jondarrer/warmup-api/blob/main/warmup-schema.graphql).*
+2. **Migrate to Dynamic Platform.** Still required for Homebridge Verified. Fixes "accessories rebuilt every restart" reset behaviour and unlocks fakegato-history.
+3. **`config.schema.json` is shipped** so users get a form-based config editor in the Homebridge UI.
 
 Everything else is incremental polish on top of those three.
 
 ---
 
-## Where we are today (v2.0.0 baseline)
+## Where we are today (v3.0.0 + unreleased polish)
 
-✅ Working hard-off (whole-location), correct local-time `until`, native fetch transport, surfaced API errors, full test suite (unit + integration + live), CI on Node 18/20/22, tag-driven npm publish with provenance, Apache-2.0 LICENSE, README + CHANGELOG + QA_TESTS, fork-isolated from upstream.
+✅ GraphQL transport, per-room hard-off, explicit override duration in minutes, native fetch transport, token refresh, surfaced HAP errors, debounced HomeKit writes, config UI schema, full offline test suite, opt-in live tests, CI on Node 18/20/22/24, tag-driven npm publish with provenance, Apache-2.0 LICENSE, README + CHANGELOG + QA_TESTS, fork-isolated from upstream.
 
-⚠️ Static accessory platform, no `config.schema.json`, REST-only transport, location-wide off only, no energy/cost, single-location, hostname-shaped log channel, plain `Error` to HAP setters (coarse "Service Communication Failure" in Home), legacy `.on('set', cb)` setters, no token refresh on expiry, no debounce on HomeKit writes.
+⚠️ Static accessory platform, no HomeKit energy/cost history, single-location, generic model metadata, and current-heating state still inferred from `currentTemp < targetTemp` instead of Warmup's relay/output signal.
 
 ---
 
@@ -37,15 +37,15 @@ Source: [`homebridge/plugins` requirements](https://github.com/homebridge/plugin
 | 2 | Doesn't duplicate an existing verified plugin | ✅ | None |
 | 3 | Published to npm with source on GitHub, issues enabled | ✅ | None |
 | 4 | A GitHub release per new version with notes | 🟡 | Auto-created by `release.yml` going forward |
-| 5 | Runs on supported LTS Node versions (22 + 24 currently) | 🟡 | Add Node 24 to CI matrix; drop 18 once HB 2.0 is the floor |
+| 5 | Runs on supported LTS Node versions | ✅ | CI covers the package's declared Node range (18.20 / 20.15 / 22 / 24). Re-check Homebridge's current LTS policy before applying for Verified. |
 | 6 | Installs successfully and doesn't start unless configured | ✅ | None |
 | 7 | No TTY / non-standard startup parameters | ✅ | None |
-| 8 | Implements Settings GUI via `config.schema.json` | ❌ | **Blocker** — see Milestone 1 |
+| 8 | Implements Settings GUI via `config.schema.json` | ✅ | None |
 | 9 | No analytics / user-tracking | ✅ | None |
 | 10 | Files stored under HB storage dir | ✅ | None (no disk files yet) |
-| 11 | Catches and logs own errors, no unhandled exceptions | 🟡 | Replace `console.error` in `_fetch` with injected `log.error` |
+| 11 | Catches and logs own errors, no unhandled exceptions | ✅ | Missing config and bootstrap failure now return no accessories and do not start polling. |
 
-**Two blockers (#1, #8) and three minor items (#4, #5, #11).** Closing all five is the prerequisite for a Verified application — see milestones below.
+**One blocker remains: #1 dynamic platform.** Re-check the current Homebridge/plugins issue template and Node policy before filing the Verified application.
 
 ---
 
@@ -63,14 +63,14 @@ Versioning policy: post-2.0, follow [SemVer](https://semver.org/). Breaking conf
 |---|---|---|---|
 | **`config.schema.json`** | Single static JSON file. Fields: `username` (text), `password` (`format:"password"` so HB UI masks), `refresh` (integer, default 60, min 30 max 600), `duration` (integer, default 60, min 5 max 1440). `pluginAlias: "warmup4ie"`, `pluginType: "platform"`, `singular: true`. | 30 min | [HB schema spec](https://developers.homebridge.io/#/config-schema) |
 | **`displayName` in `package.json`** | `"Homebridge Warmup Wi-Fi Thermostats"`. Renders in HB UI plugin browser instead of the bare npm name. Avoids the model-specific "4iE" wording so users with 6iE/7iE/Element/Terra recognise the plugin. | 5 min | [npm `displayName`](https://github.com/homebridge/plugins) |
-| **Manufacturer & Model accessory info** | `Manufacturer: "Warmup"` (was `warmup4ie`); `Model: "Wi-Fi Thermostat"` (was `4iE` — incorrect for users with 6iE/7iE/Element/Terra). Real model name comes from `appFw`/`deviceModel` in M3 once GraphQL lands. | 10 min | — |
+| **Manufacturer & Model accessory info** | `Manufacturer: "Warmup"` (was `warmup4ie`); `Model: "Wi-Fi Thermostat"` (was `4iE` — incorrect for users with 6iE/7iE/Element/Terra). A later metadata pass may use reliable GraphQL device/firmware fields where available. | 10 min | — |
 | **Stable per-instance `roomId`-based serial** | Already done in v2.0.0 — keep. | — | — |
 | **Logging hygiene** | `this.log.info` for one-time events, `this.log.debug` for set-action chatter and per-poll updates. Replace `console.error` in `_fetch` with `log.error` via DI. Drop polling chatter from default verbosity. | 30 min | — |
 | **`.onSet(async)` migration** | Replace legacy `.on('set', cb)` with `.onSet(async value => {...})`. Throw `HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE)` instead of `cb(new Error(...))`. | 1 h | [HAPStatus enum](https://github.com/homebridge/HAP-NodeJS/blob/master/src/lib/HAPServer.ts) |
 | **HAP error categorization** | Map `_fetch` rejection types: network → `OPERATION_TIMED_OUT`, `Warmup HTTP 4xx` → `INSUFFICIENT_AUTHORIZATION`, `Warmup API: ...` → `SERVICE_COMMUNICATION_FAILURE`. | 30 min | — |
 | **Token refresh on 401** | Detect 401 / "invalid token" message → null cached token → re-call `userLogin` once → retry. | 1 h | [openHAB pattern](https://github.com/openhab/openhab-addons/blob/main/bundles/org.openhab.binding.warmup/src/main/java/org/openhab/binding/warmup/internal/api/MyWarmupApi.java) |
 | **Debounce HomeKit writes** | Slider drag emits one `set` per tick. Coalesce 300–500ms before sending. | 30 min | — |
-| **Drop module-level mutable state** | `WarmupAccessToken` and `LocId` are file-scope `let`s — collide across multiple instances. Move to `this.token` / `this.locId`. | 30 min | — |
+| **Drop module-level mutable state** | `WarmupAccessToken` and `LocId` moved to `this._token` / `this._locId`; unreleased polish also moved platform accessory/client/timer state to instance fields. | 30 min | — |
 | **Engines: bump for HB 2.0 path** | Either declare separate engines per HB version, or drop HB 1.6 support and require Node `^22.10.0 || ^24.0.0`. Add Node 24 to CI matrix. | 15 min | [HB 2.0 changelog](https://github.com/homebridge/homebridge/blob/master/CHANGELOG.md) |
 | **README: Child Bridge recommendation** | One-paragraph "Recommended: enable Child Bridge for this plugin" section. Slow-API plugins benefit. | 10 min | — |
 
@@ -80,19 +80,17 @@ After this milestone: items #5, #8, #11 of the Verified checklist are closed; #1
 
 ---
 
-### Milestone 2 — v2.2.0 — Multi-location + per-room Off
+### ⏭️ Milestone 2 — v2.2.0 — Multi-location + REST per-room-off workaround — SUPERSEDED
 
-**Goal:** Fix the two biggest user-visible behaviour limitations from v2.0. Still on REST.
+**Status:** skipped. v3.0's GraphQL `deviceOff(lid, rid)` shipped real per-room hard-off, so the brittle REST low-fixed-temp workaround is intentionally not planned. Multi-location remains future work.
 
 | Item | Description | Effort | Source |
 |---|---|---|---|
-| **`location` config option** | Optional string: name match (case-insensitive). If omitted, fall back to `locations[0]` (current behaviour). Matches alex-0103's pattern. | 1 h | [alex-0103 `_getLocations`](https://github.com/alex-0103/warmup4IE/blob/master/warmup4ie/warmup4ie.py) |
-| **Per-room "Off" via REST `setProgramme` + low fixed temp** | Send `setProgramme roomMode: "fixed"` followed by an override at frost setpoint (5–7 °C). HomeKit "Off" no longer kills the whole house. | 2–3 h incl. live QA | — |
+| **`location` config option** | Optional string: name match (case-insensitive). If omitted, fall back to the first `user.owned[]` location (current behaviour). Matches alex-0103's pattern. | 1 h | [alex-0103 `_getLocations`](https://github.com/alex-0103/warmup4IE/blob/master/warmup4ie/warmup4ie.py) |
+| ~~Per-room "Off" via REST `setProgramme` + low fixed temp~~ | Superseded by v3.0 GraphQL `deviceOff(lid, rid)`. | — | — |
 | **`StatusFault` characteristic** | Map `room.sensorFault` (or per-thermostat `isFaultAir`/`isFaultFloor1`/`isFaultFloor2`) to HAP `StatusFault`. Shows a red badge in Home if the floor probe disconnects. | 30 min | [Thermostat4iE schema](https://github.com/jondarrer/warmup-api/blob/main/warmup-schema.graphql) |
 
-**Note:** the REST per-room-off workaround is a bridge until Milestone 3's GraphQL `deviceOff(lid,rid)` lands. We could skip the REST workaround entirely and wait for GraphQL. **Recommend skipping** if Milestone 3 lands within ~2 weeks of Milestone 2 — the workaround is brittle (relies on the user not noticing the room is "Heat at 5°C" rather than truly Off) and replacing it with the canonical operation in M3 is cleaner. **Decision pending — flag for the next planning round.**
-
-**Total effort if we ship the workaround:** ~4 hours. Ships as `2.2.0`.
+**Result:** no `2.2.0` release was needed; v3.0 took the cleaner path.
 
 ---
 
