@@ -7,6 +7,67 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.8.0] — 2026-05-05
+
+Final validation pass before handoff — quality, robustness and
+documentation polish. No regression to the happy path; defensive
+hardening on the unhappy paths, a fix for the Eve energy graph, and an
+Apple Home tile-grouping improvement for the child lock. Concludes the
+post-M6 polish lap; **handoff release**.
+
+### Fixed
+
+- **Eve.Energy.TotalConsumption is now `FLOAT`** (was `UINT32` with
+  `minStep: 1`). The integer-rounded form was silently losing fractional
+  kWh — Eve.app's long-term graph would plateau until a full kWh ticked
+  over. Matches the convention used by other Eve-aware Homebridge plugins.
+  `deriveTotalConsumption` now rounds to 3 decimals (drops FP noise
+  without losing useful precision).
+- **Set handlers now throw a clean HAP error when bootstrap failed.** If
+  the Warmup login or initial fetch errored at startup (`platform.thermostats
+  === null`), tapping a HomeKit control would previously throw a generic
+  `TypeError: Cannot read properties of null`. We now surface
+  `HAPStatus.SERVICE_COMMUNICATION_FAILURE` so HomeKit shows
+  "Not Responding" instead of a stack trace. Applies to thermostat
+  on/off/heat/auto, target-temp slider, child-lock toggle, and the
+  Vacation/Frost location switches.
+
+### Changed
+
+- **LockMechanism is linked to the Thermostat service.** Apple Home now
+  groups the child-lock under the thermostat tile (one tile, expandable)
+  instead of showing two unrelated tiles in the room. Idempotent on
+  cached accessories.
+
+### Internal
+
+- **Request headers** now include `accept-language: en-gb` and
+  `x-request-type: GraphQL` to match the official Warmup mobile app's
+  request shape. The `accept-language` change avoids occasionally getting
+  localized error messages back from the gateway in a non-English
+  language.
+- **`config.schema.json`** declares a top-level JSON-Schema `required`
+  array (`["name", "username", "password"]`) in addition to the
+  per-property `required: true` flags. Belt-and-braces — the Homebridge
+  config UI honours both, but the array form is the standard.
+- **README:** new "Privacy & data" section noting that the `app-token`
+  baked into the source is the same static token shipped in the Warmup
+  mobile app (extracted from public traffic captures), not a per-user
+  secret. Pre-empts confusion when readers see the value in plain text.
+- **Test parity:** `firmware-and-energy.test.js` updated to match the new
+  `deriveTotalConsumption` (3-decimal rounding rather than `Math.floor`).
+
+### Verified
+
+- `npm run lint` — clean (0 warnings, 0 errors).
+- `npm test` — 114 offline tests pass (3 live tests skipped without
+  credentials).
+- `npm run smoke` — entry-point loads and registers the platform.
+- All v3.7.0 child-lock behaviour verified intact in the test mock and
+  by re-reading the wire-format suite.
+
+---
+
 ## [3.7.0] — 2026-05-05
 
 Roadmap [Milestone 6](ROADMAP.md) batch 5 — **child lock** per thermostat

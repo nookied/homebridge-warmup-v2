@@ -16,7 +16,8 @@ function deriveFirmwareRevision(room, fallback) {
 }
 function deriveTotalConsumption(room) {
   const total = Number(room && room.total);
-  return Number.isFinite(total) && total >= 0 ? Math.floor(total) : 0;
+  if (!Number.isFinite(total) || total < 0) return 0;
+  return Math.round(total * 1000) / 1000;
 }
 
 describe('deriveFirmwareRevision', () => {
@@ -52,15 +53,16 @@ describe('deriveFirmwareRevision', () => {
 });
 
 describe('deriveTotalConsumption', () => {
-  test('numeric total → floored kWh', () => {
+  test('numeric total → kWh rounded to 3 decimals', () => {
     expect(deriveTotalConsumption({ total: 0 })).toBe(0);
     expect(deriveTotalConsumption({ total: 42 })).toBe(42);
-    expect(deriveTotalConsumption({ total: 42.7 })).toBe(42);
+    expect(deriveTotalConsumption({ total: 42.7 })).toBe(42.7);
+    expect(deriveTotalConsumption({ total: 42.7159 })).toBe(42.716);
   });
 
   test('string total → coerced to number', () => {
     expect(deriveTotalConsumption({ total: '42' })).toBe(42);
-    expect(deriveTotalConsumption({ total: '42.7' })).toBe(42);
+    expect(deriveTotalConsumption({ total: '42.7' })).toBe(42.7);
   });
 
   test('negative or non-finite total → 0', () => {

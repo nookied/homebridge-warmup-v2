@@ -55,12 +55,17 @@ module.exports = function (homebridge) {
     EveTotalConsumption = class extends Characteristic {
       constructor() {
         super('Total Consumption', EVE_TOTAL_CONSUMPTION_UUID);
+        // FLOAT, not UINT32 — Eve.app and other Eve-aware HomeKit plugins
+        // (homebridge-eve-thermo, homebridge-fakegato-history-eve, etc.) all
+        // publish kWh as a fractional float so partial-kWh values render on
+        // the long-term graph. UINT32 with `minStep: 1` would round 0.42 kWh
+        // to 0 every poll, making the graph plateau until a full kWh ticks
+        // over.
         this.setProps({
-          format: Characteristic.Formats.UINT32,
+          format: Characteristic.Formats.FLOAT,
           unit: 'kWh',
           minValue: 0,
-          maxValue: 4294967295,
-          minStep: 1,
+          maxValue: 1000000000,
           perms: [Characteristic.Perms.PAIRED_READ, Characteristic.Perms.NOTIFY]
         });
         this.value = this.getDefaultValue();
@@ -320,6 +325,12 @@ function attachAccessoryServices(platform, accessory, room) {
   }
   lockService.getCharacteristic(Characteristic.LockTargetState)
     .onSet((value) => handleChildLockSet(platform, accessory, value));
+  // Group the lock under the thermostat in Apple Home (one tile, expandable
+  // into "+ Lock"). Without this they show as two separate tiles in the room.
+  // `addLinkedService` is idempotent — safe to call on cached accessories.
+  if (typeof thermo.addLinkedService === 'function') {
+    thermo.addLinkedService(lockService);
+  }
 
   // Eve.Energy.TotalConsumption — cumulative kWh shown in Eve.app's
   // long-term energy graph. The custom characteristic is auto-added on
@@ -441,6 +452,7 @@ function pushRoomState(accessory, room) {
 async function handleTargetHeatingCoolingSet(platform, accessory, value) {
   const room = accessory.context.room || {};
   platform.log.debug('Set HeatingCoolingState for %s → %s', accessory.displayName, value);
+  if (!platform.thermostats) throw notReadyError();
   try {
     switch (value) {
       case 0: // Off — per-room since v3 (was location-wide in v2 due to API limit)
@@ -462,6 +474,7 @@ async function handleTargetHeatingCoolingSet(platform, accessory, value) {
 
 function handleTargetTemperatureSet(platform, accessory, value) {
   platform.log.debug('Set TargetTemperature for %s → %s°', accessory.displayName, value);
+  if (!platform.thermostats) return Promise.reject(notReadyError());
 
   // Trailing-edge debounce per accessory + characteristic.
   const debouncers = getDebouncers(platform, accessory);
@@ -487,6 +500,7 @@ async function handleChildLockSet(platform, accessory, value) {
   // HomeKit LockTargetState: UNSECURED=0, SECURED=1.
   const wantsLocked = value === Characteristic.LockTargetState.SECURED;
   platform.log.debug('Set ChildLock for %s → %s', accessory.displayName, wantsLocked ? 'locked' : 'unlocked');
+  if (!platform.thermostats) throw notReadyError();
   try {
     await platform.thermostats.setRoomChildLock(accessory.context.roomId, wantsLocked);
     // Optimistically update CurrentState to match Target — the next poll
@@ -524,6 +538,13 @@ function asHapStatusError(err) {
   if (msg.startsWith('Warmup HTTP 4')) {
     return new HapStatusError(HAPStatus.INSUFFICIENT_AUTHORIZATION);
   }
+  return new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+}
+
+// Bootstrap failed (Warmup unreachable, bad credentials, etc.) — HAP throws a
+// "Not Responding" pill rather than a silent no-op, which would let HomeKit
+// believe a Set succeeded when it didn't even leave the host.
+function notReadyError() {
   return new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
 }
 
@@ -594,6 +615,7 @@ function ensureLocationSwitch(platform, locId, spec) {
 
 async function handleLocationSwitchSet(platform, spec, value) {
   platform.log.debug('Set %s → %s', spec.displayName, value);
+  if (!platform.thermostats) throw notReadyError();
   try {
     if (value) {
       await spec.enable(platform.thermostats);
@@ -683,11 +705,13 @@ function deriveFirmwareRevision(room) {
 
 // Eve.Energy.TotalConsumption: cumulative kWh, monotonically increasing.
 // Warmup's `total` is the closest match (`energy` is today-only and resets
-// daily, which would make Eve's graph look bizarre). UINT32 expected;
-// defensive cast in case the API ever returns a string.
+// daily, which would make Eve's graph look bizarre). FLOAT (kWh fractional);
+// defensive cast in case the API ever returns a string. Round to 3 decimals
+// to drop FP noise without losing useful precision.
 function deriveTotalConsumption(room) {
   const total = Number(room && room.total);
-  return Number.isFinite(total) && total >= 0 ? Math.floor(total) : 0;
+  if (!Number.isFinite(total) || total < 0) return 0;
+  return Math.round(total * 1000) / 1000;
 }
 
 function uuidForRoom(roomId) {

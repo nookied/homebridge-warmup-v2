@@ -6,6 +6,7 @@
   "footerDisplay": "Need help? See the [README](https://github.com/nookied/homebridge-warmup4ie-v2#readme) or [open an issue](https://github.com/nookied/homebridge-warmup4ie-v2/issues).",
   "schema": {
     "type": "object",
+    "required": ["name", "username", "password"],
     "properties": {
       "name": {
         "title": "Name",

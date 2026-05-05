@@ -144,6 +144,13 @@ DEBUG=warmup4ie* sudo -E systemctl restart homebridge
 sudo journalctl -u homebridge -f
 ```
 
+## Privacy & data
+
+- Your my.warmup.com **email and password** are kept locally in `config.json` and sent only to `api.warmup.com` (login) and `apil.warmup.com` (data). They never leave your Homebridge host except over TLS to Warmup.
+- After login, a per-user **access token** is held in memory (not on disk) and refreshed on 401.
+- The `app-token` header value baked into the source (`src/lib/warmup4ie.js`) is the **static token that ships with the Warmup mobile app** — extracted from public traffic captures. It identifies the client to Warmup's gateway; it is not a per-user secret and is the same value every Warmup app installation sends. Its presence in the public repository is intentional and not a credential leak.
+- This plugin does not phone home to any third-party telemetry; the only network calls are to Warmup.
+
 ## Development
 
 ```bash

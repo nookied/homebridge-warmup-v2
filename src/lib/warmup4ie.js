@@ -24,7 +24,14 @@ const REQUEST_HEADERS = {
   'content-type': 'application/json',
   'app-token': APP_TOKEN,
   'app-version': '1.8.1',
-  'accept-language': 'de-de'
+  // Matches what the official Warmup mobile app and jondarrer's request
+  // traces send. Some Warmup error messages localize, so a non-en locale
+  // can produce confusing German error strings in our `Warmup API:` errors.
+  'accept-language': 'en-gb',
+  // The official mobile app's introspection requests include this; not
+  // strictly required by the gateway today but cheap insurance against
+  // future stricter validation.
+  'x-request-type': 'GraphQL'
 };
 const REQUEST_TIMEOUT_MS = 10000;
 
