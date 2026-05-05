@@ -2,6 +2,7 @@
 // Each Warmup "room" is exposed as a HomeKit Thermostat (primary) plus a
 // paired TemperatureSensor for the air-temp probe. Static accessory platform
 // (legacy `accessories(callback)` flow) — Homebridge v2 still supports this.
+// A migration to dynamic platform is planned in v3.1; see ROADMAP.md.
 
 'use strict';
 
@@ -10,13 +11,17 @@ const { Warmup4IE } = require('./lib/warmup4ie');
 const { deriveCurrentHeatingState, deriveTargetHeatingState } = require('./lib/state');
 const { version: PLUGIN_VERSION, name: PLUGIN_NAME } = require('../package.json');
 
-let Service, Characteristic;
+const SLIDER_DEBOUNCE_MS = 300;
+
+let Service, Characteristic, HapStatusError, HAPStatus;
 const myAccessories = [];
 let thermostats;
 
 module.exports = function (homebridge) {
   Service = homebridge.hap.Service;
   Characteristic = homebridge.hap.Characteristic;
+  HapStatusError = homebridge.hap.HapStatusError;
+  HAPStatus = homebridge.hap.HAPStatus;
 
   // First arg matches the npm package name (Homebridge uses it for plugin
   // disambiguation). Second arg is the platform identifier users put in
@@ -34,7 +39,7 @@ function warmup4iePlatform(log, config /* , api */) {
 
 warmup4iePlatform.prototype = {
   accessories: function (callback) {
-    this.log('Logging into warmup4ie...');
+    this.log.info('Logging into warmup4ie...');
 
     thermostats = new Warmup4IE(this, (err, rooms) => {
       if (err) {
@@ -42,24 +47,23 @@ warmup4iePlatform.prototype = {
         callback([]);
         return;
       }
-      this.log('Found %s room(s)', rooms.length);
+      this.log.info('Found %s room(s)', rooms.length);
       rooms.forEach((room) => {
-        this.log('Adding', room.roomName);
+        this.log.info('Adding %s', room.roomName);
         myAccessories.push(new Warmup4ieAccessory(this, room.roomName, thermostats.room[room.roomId]));
       });
       callback(myAccessories);
     });
 
-    setInterval(() => {
-      thermostats.getStatus((err) => {
-        if (err) {
-          this.log.error('Warmup poll failed:', err.message);
-          return;
-        }
+    setInterval(async () => {
+      try {
+        await thermostats.getStatus();
         thermostats.room.forEach((room) => {
           if (room) updateStatus(room);
         });
-      });
+      } catch (err) {
+        this.log.error('Warmup poll failed:', err.message);
+      }
     }, this.refresh * 1000);
   }
 };
@@ -97,61 +101,78 @@ function updateStatus(room) {
     .updateValue(Number(room.airTemp / 10));
 }
 
+// Map a Warmup error to an HAP status code. Coarse but better than the
+// generic "Service Communication Failure" that a plain Error produces.
+function asHapStatusError(err) {
+  const msg = err && err.message ? err.message : '';
+  if (msg.startsWith('Warmup network error') || msg.includes('aborted') || msg.includes('timeout')) {
+    return new HapStatusError(HAPStatus.OPERATION_TIMED_OUT);
+  }
+  if (msg.startsWith('Warmup HTTP 4')) {
+    return new HapStatusError(HAPStatus.INSUFFICIENT_AUTHORIZATION);
+  }
+  return new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+}
+
 function Warmup4ieAccessory(that, name, room) {
   this.log = that.log;
-  this.log('Adding warmup4ie Device', name);
+  this.log.info('Adding warmup4ie Device %s', name);
   this.name = name;
   this.room = room;
   this.roomId = room.roomId;
+  // Per-characteristic debounce timers. HomeKit emits one `set` per slider
+  // tick; coalesce trailing-edge so a drag results in one HTTP call, not N.
+  this._timers = {};
 }
 
 Warmup4ieAccessory.prototype = {
 
-  setTargetHeatingCooling: function (value, callback) {
-    this.log('Setting system switch for', this.name, 'to', value);
-    switch (value) {
-      case 0: // Off (location-wide — see lib note)
-        thermostats.setRoomOff(this.roomId, (err, json) => {
-          if (err) return callback(err);
-          debug('setRoomOff - Result', json);
-          callback(null);
-        });
-        break;
-      case 1: // Heat — keep override/fixed if already set, otherwise resume schedule
-        if (this.room.runMode === 'fixed' || this.room.runMode === 'override') {
-          callback(null);
-        } else {
-          thermostats.setRoomAuto(this.roomId, (err, json) => {
-            if (err) return callback(err);
-            debug('setRoomAuto - Result', json);
-            callback(null);
-          });
-        }
-        break;
-      case 3: // Auto
-        thermostats.setRoomAuto(this.roomId, (err, json) => {
-          if (err) return callback(err);
-          debug('setRoomAuto - Result', json);
-          callback(null);
-        });
-        break;
-      default:
-        callback(null);
+  // Mode changes are usually single taps — no debounce needed.
+  handleTargetHeatingCoolingSet: async function (value) {
+    this.log.debug('Set HeatingCoolingState for %s → %s', this.name, value);
+    try {
+      switch (value) {
+        case 0: // Off (location-wide — see lib note)
+          await thermostats.setRoomOff(this.roomId);
+          break;
+        case 1: // Heat — keep override/fixed if already set, otherwise resume schedule
+          if (this.room.runMode === 'fixed' || this.room.runMode === 'override') return;
+          await thermostats.setRoomAuto(this.roomId);
+          break;
+        case 3: // Auto
+          await thermostats.setRoomAuto(this.roomId);
+          break;
+      }
+    } catch (err) {
+      this.log.error('Set HeatingCoolingState for %s failed: %s', this.name, err.message);
+      throw asHapStatusError(err);
     }
   },
 
-  setTargetTemperature: function (value, callback) {
-    this.log('Setting target temperature for', this.name, 'to', value + '°');
-    thermostats.setTargetTemperature(this.roomId, value, (err, json) => {
-      if (err) return callback(err);
-      debug('setTargetTemperature - Result', json);
-      callback(null);
+  // Temperature changes are debounced — slider drag emits many setters.
+  handleTargetTemperatureSet: async function (value) {
+    this.log.debug('Set TargetTemperature for %s → %s°', this.name, value);
+
+    // Trailing-edge debounce: cancel any pending timer, schedule a new one.
+    if (this._timers.targetTemp) clearTimeout(this._timers.targetTemp);
+
+    return new Promise((resolve, reject) => {
+      this._timers.targetTemp = setTimeout(async () => {
+        try {
+          await thermostats.setTargetTemperature(this.roomId, value);
+          resolve();
+        } catch (err) {
+          this.log.error('Set TargetTemperature for %s failed: %s', this.name, err.message);
+          reject(asHapStatusError(err));
+        }
+      }, SLIDER_DEBOUNCE_MS);
     });
   },
 
   getServices: function () {
     const informationService = new Service.AccessoryInformation()
-      .setCharacteristic(Characteristic.Manufacturer, 'warmup4ie')
+      .setCharacteristic(Characteristic.Manufacturer, 'Warmup')
+      .setCharacteristic(Characteristic.Model, '4iE')
       // Stable serial: roomId is unique per Warmup account and survives host moves.
       .setCharacteristic(Characteristic.SerialNumber, `warmup4ie-${this.roomId}`)
       .setCharacteristic(Characteristic.FirmwareRevision, PLUGIN_VERSION);
@@ -172,7 +193,7 @@ Warmup4ieAccessory.prototype = {
     this.thermostatService
       .getCharacteristic(Characteristic.TargetHeatingCoolingState)
       .setProps({ validValues: [0, 1, 3] })
-      .on('set', this.setTargetHeatingCooling.bind(this));
+      .onSet(this.handleTargetHeatingCoolingSet.bind(this));
 
     this.thermostatService
       .getCharacteristic(Characteristic.TargetTemperature)
@@ -180,7 +201,7 @@ Warmup4ieAccessory.prototype = {
         minValue: this.room.minTemp / 10,
         maxValue: this.room.maxTemp / 10
       })
-      .on('set', this.setTargetTemperature.bind(this));
+      .onSet(this.handleTargetTemperatureSet.bind(this));
 
     this.thermostatService
       .getCharacteristic(Characteristic.CurrentTemperature)
@@ -203,6 +224,7 @@ Warmup4ieAccessory.prototype = {
       .getCharacteristic(Characteristic.TargetHeatingCoolingState)
       .updateValue(deriveTargetHeatingState(this.room));
 
+    debug('getServices for %s', this.name);
     return [informationService, this.thermostatService, this.temperatureService];
   }
 };

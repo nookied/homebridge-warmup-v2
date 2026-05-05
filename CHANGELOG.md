@@ -7,6 +7,63 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [2.1.0] — 2026-05-05
+
+Roadmap [Milestone 1](ROADMAP.md) — Verified-plugin prep and UX polish. No
+breaking changes; existing `config.json` continues to work unchanged.
+
+### Added
+- **`config.schema.json`** — Homebridge UI now renders a proper form for all
+  config options (email, password, polling interval, override duration) with
+  validation, password masking, and inline help text. Required for the
+  Homebridge Verified Plugin program.
+- **`displayName` in `package.json`** (`"Homebridge Warmup 4iE"`) — clean
+  label in the Homebridge UI plugin browser.
+- **`Model` characteristic** on each accessory (`"4iE"`) — was missing,
+  surfaced as "Default Model" in Home app before.
+- **Token refresh on 401** — when the Warmup access token expires (e.g.
+  HTTP 401 or API error code 100/102/103), the lib re-authenticates and
+  retries the request once. No more silent failures after long uptimes.
+- **HAP error categorization** — write failures now surface as the right
+  HomeKit error: network/timeout → `OPERATION_TIMED_OUT`, HTTP 4xx →
+  `INSUFFICIENT_AUTHORIZATION`, anything else → `SERVICE_COMMUNICATION_FAILURE`.
+  Home app shows clearer "Not Responding" reasons.
+- **Trailing-edge debounce** on the `TargetTemperature` setter (300 ms) —
+  dragging the slider now produces one HTTP call after you stop, not N
+  calls during the drag.
+- **Recommended: Child Bridge** — README section explaining the slow-API
+  rationale.
+
+### Changed
+- **Lib transport API: callbacks → Promises.** `getStatus()`,
+  `setTargetTemperature()`, `setRoomAuto()`, `setRoomOff()` all return
+  Promises. Internal change — public Homebridge plugin behaviour unchanged.
+- **HAP setters: `.on('set', cb)` → `.onSet(async)`** — modern API style,
+  cleaner error propagation via thrown `HapStatusError`.
+- **Manufacturer string:** `warmup4ie` → `Warmup`.
+- **Module-level mutable state** moved to instance fields. The lib's
+  `WarmupAccessToken` and `LocId` were file-scope `let`s that would
+  collide across multiple instances; now `this._token` and `this._locId`.
+  Future-proofs multi-account scenarios.
+- **Logging hygiene**: per-write events (`Setting system switch`,
+  `Setting target temperature`) are now `log.debug` instead of `log.info`,
+  significantly reducing noise in default Homebridge logs. Bootstrap
+  events stay at `log.info`.
+- **Engines:** `homebridge: "^1.6.0 || ^2.0.0"` (dropped beta marker now
+  that HB 2.0 is GA). Node 24 added to the engines list and CI matrix.
+- **`console.error` in transport replaced by errors propagating to
+  caller** — HB log captures everything correctly now.
+
+### Removed
+- **`_sendRequest` callback wrapper** — internal; tests now stub `_fetch`
+  directly. Test surface is cleaner.
+
+### Tests
+- 56 passing (+6 since 2.0.0). New: token-refresh integration tests,
+  `_isTokenError` unit tests, async/await test patterns throughout.
+
+---
+
 ## [2.0.0] — 2026-05-05
 
 **First release of the maintained fork.** Restores the working hard-off that broke in upstream 0.1.0–0.1.1, replaces the deprecated `request` HTTP library with native `fetch`, adds a real test suite, and ships under the new npm name `homebridge-warmup4ie-v2`.

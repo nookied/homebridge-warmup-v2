@@ -2,7 +2,8 @@
 
 // `_fetch` is the lone transport seam — it builds the HTTP request and
 // classifies the response. These tests stub `globalThis.fetch` to verify
-// every error/success path.
+// every error/success path. Token-refresh tests for `_authenticatedFetch`
+// live in test/integration/error-recovery.test.js.
 
 const { Warmup4IE } = require('../../src/lib/warmup4ie');
 const { makeResponse, stubFetch } = require('../helpers');
@@ -12,6 +13,8 @@ function newClient() {
   const c = Object.create(Warmup4IE.prototype);
   c._username = 'user@example.com';
   c._password = 'secret';
+  c._token = 'mock-token';
+  c._locId = 12345;
   c._duration = 60;
   c.room = [];
   return c;
@@ -84,29 +87,37 @@ describe('_fetch', () => {
   });
 });
 
-describe('_sendRequest (callback wrapper around _fetch)', () => {
-  let restoreFetch;
-  afterEach(() => { if (restoreFetch) restoreFetch(); });
-
-  test('callback receives (null, json) on success', () => {
-    restoreFetch = stubFetch(async () => makeResponse({ status: { result: 'success' }, response: { x: 1 } }));
-    return new Promise((resolve) => {
-      newClient()._sendRequest({}, (err, json) => {
-        expect(err).toBeNull();
-        expect(json.response.x).toBe(1);
-        resolve();
-      });
-    });
+describe('_isTokenError', () => {
+  test('Warmup HTTP 401 is a token error', () => {
+    const c = newClient();
+    expect(c._isTokenError(new Error('Warmup HTTP 401'))).toBe(true);
   });
 
-  test('callback receives (Error) on API rejection', () => {
-    restoreFetch = stubFetch(async () => makeResponse({ status: { result: 'error', message: 'nope' } }));
-    return new Promise((resolve) => {
-      newClient()._sendRequest({}, (err) => {
-        expect(err).toBeInstanceOf(Error);
-        expect(err.message).toMatch(/Warmup API/);
-        resolve();
-      });
-    });
+  test('Warmup HTTP 500 is NOT a token error', () => {
+    const c = newClient();
+    expect(c._isTokenError(new Error('Warmup HTTP 500'))).toBe(false);
+  });
+
+  test('API error code 103 (token expired) is a token error', () => {
+    const c = newClient();
+    expect(c._isTokenError(new Error('Warmup API: {"result":"error","code":103,"message":"Invalid token"}')))
+      .toBe(true);
+  });
+
+  test('API error code 100 (bad creds) is a token error', () => {
+    const c = newClient();
+    expect(c._isTokenError(new Error('Warmup API: {"result":"error","code":100}')))
+      .toBe(true);
+  });
+
+  test('API error code 500 (operation failed) is NOT a token error', () => {
+    const c = newClient();
+    expect(c._isTokenError(new Error('Warmup API: {"result":"error","code":500}')))
+      .toBe(false);
+  });
+
+  test('network error is NOT a token error', () => {
+    const c = newClient();
+    expect(c._isTokenError(new Error('Warmup network error: ECONNREFUSED'))).toBe(false);
   });
 });

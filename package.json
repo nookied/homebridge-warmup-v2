@@ -1,6 +1,7 @@
 {
   "name": "homebridge-warmup4ie-v2",
-  "version": "2.0.0",
+  "displayName": "Homebridge Warmup 4iE",
+  "version": "2.1.0",
   "description": "Homebridge plugin for Warmup 4iE underfloor-heating thermostats. Maintained fork of homebridge-warmup4ie with fixes for Homebridge 2.0 and the broken Off control in 0.1.0–0.1.1.",
   "main": "src/index.js",
   "scripts": {
@@ -25,8 +26,8 @@
     "homekit"
   ],
   "engines": {
-    "homebridge": "^1.6.0 || ^2.0.0-beta.0",
-    "node": "^18.20.4 || ^20.15.1 || ^22.0.0"
+    "homebridge": "^1.6.0 || ^2.0.0",
+    "node": "^18.20.4 || ^20.15.1 || ^22.0.0 || ^24.0.0"
   },
   "dependencies": {
     "debug": "^4.4.0"

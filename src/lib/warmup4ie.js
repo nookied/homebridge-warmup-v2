@@ -15,20 +15,26 @@ const REQUEST_HEADERS = {
 };
 const REQUEST_TIMEOUT_MS = 10000;
 
-let WarmupAccessToken = null;
-let LocId = null;
+// Error codes the Warmup API returns for token-related failures, observed
+// in OSS ports (alex-0103, ha-warmup, openHAB) and confirmed against the
+// public schema. We use these to trigger one re-auth + retry per request.
+const TOKEN_ERROR_CODES = new Set([100, 102, 103]);
 
 class Warmup4IE {
   constructor(options, callback) {
     this._username = options.username;
     this._password = options.password;
     this._duration = options.duration;
+    this._token = null;
+    this._locId = null;
     this.room = [];
 
-    this._bootstrap().then(
-      (rooms) => callback(null, rooms),
-      (err) => callback(err)
-    );
+    if (typeof callback === 'function') {
+      this._bootstrap().then(
+        (rooms) => callback(null, rooms),
+        (err) => callback(err)
+      );
+    }
   }
 
   async _bootstrap() {
@@ -37,15 +43,32 @@ class Warmup4IE {
     return this._fetchRooms();
   }
 
-  // Public callback-style transport. Stubbed by tests.
-  _sendRequest(body, callback) {
-    this._fetch(body).then(
-      (json) => callback(null, json),
-      (err) => {
-        console.error(err);
-        callback(err);
-      }
-    );
+  // ---------------------------------------------------------------------------
+  // Transport
+  // ---------------------------------------------------------------------------
+
+  // Wrap `_fetch` with one re-auth + retry on token-related failures.
+  // The body must be a *factory* (function returning a body) so that the
+  // retry sees the freshly minted token, not the stale one captured at the
+  // first call.
+  async _authenticatedFetch(buildBody) {
+    try {
+      return await this._fetch(buildBody());
+    } catch (err) {
+      if (!this._isTokenError(err)) throw err;
+      debug('Token rejected by Warmup, re-authenticating');
+      this._token = null;
+      await this._generateAccessToken();
+      return this._fetch(buildBody());
+    }
+  }
+
+  _isTokenError(err) {
+    const msg = err.message || '';
+    if (msg.startsWith('Warmup HTTP 401')) return true;
+    const codeMatch = msg.match(/Warmup API: .*"code":\s*(\d+)/);
+    if (codeMatch && TOKEN_ERROR_CODES.has(parseInt(codeMatch[1], 10))) return true;
+    return false;
   }
 
   async _fetch(body) {
@@ -73,14 +96,18 @@ class Warmup4IE {
       throw new Error(`Warmup JSON parse error: ${ex.message}`);
     }
 
-    // The Warmup API returns 200 with `{status:{result:"error",...}}` on rejection.
+    // Warmup returns 200 OK with `{status:{result:"error",...}}` on rejection.
     if (json.status && json.status.result !== 'success') {
-      const msg = json.message || json.status.message || JSON.stringify(json.status);
-      throw new Error(`Warmup API: ${msg}`);
+      const detail = json.message || json.status.message || JSON.stringify(json.status);
+      throw new Error(`Warmup API: ${detail}`);
     }
 
     return json;
   }
+
+  // ---------------------------------------------------------------------------
+  // Auth + bootstrap
+  // ---------------------------------------------------------------------------
 
   async _generateAccessToken() {
     const json = await this._fetch({
@@ -91,32 +118,36 @@ class Warmup4IE {
         appId: 'WARMUP-APP-V001'
       }
     });
-    WarmupAccessToken = json.response.token;
+    this._token = json.response.token;
   }
 
   // By design: multi-location accounts use the first location only. The Warmup
   // app does the same when no location is explicitly selected. If you need a
   // second location, run a second Homebridge child bridge with another account.
   async _getLocations() {
-    if (!WarmupAccessToken) throw new Error('Missing access token.');
+    if (!this._token) throw new Error('Missing access token.');
 
     const json = await this._fetch({
-      account: { email: this._username, token: WarmupAccessToken },
+      account: { email: this._username, token: this._token },
       request: { method: 'getLocations' }
     });
 
     const first = json.response.locations && json.response.locations[0];
     if (!first) throw new Error('No locations on Warmup account.');
-    LocId = first.id;
+    this._locId = first.id;
   }
 
-  async _fetchRooms() {
-    if (!LocId || !WarmupAccessToken) throw new Error('Missing LocId or access token.');
+  // ---------------------------------------------------------------------------
+  // Public read API
+  // ---------------------------------------------------------------------------
 
-    const json = await this._fetch({
-      account: { email: this._username, token: WarmupAccessToken },
-      request: { method: 'getRooms', locId: LocId }
-    });
+  async _fetchRooms() {
+    if (!this._locId) throw new Error('Missing locId.');
+
+    const json = await this._authenticatedFetch(() => ({
+      account: { email: this._username, token: this._token },
+      request: { method: 'getRooms', locId: this._locId }
+    }));
 
     const rooms = json.response.rooms || [];
     rooms.forEach((room) => {
@@ -125,21 +156,24 @@ class Warmup4IE {
     return rooms;
   }
 
-  getStatus(callback) {
-    this._fetchRooms().then(
-      (rooms) => callback(null, rooms),
-      (err) => callback(err)
-    );
+  async getStatus() {
+    return this._fetchRooms();
   }
 
-  setTargetTemperature(roomId, value, callback) {
-    // `until` is local-time HH:MM. The Warmup app sends local time; UTC here makes
-    // the override expire at the wrong wall-clock time (off by the timezone offset).
+  // ---------------------------------------------------------------------------
+  // Public write API
+  // ---------------------------------------------------------------------------
+
+  async setTargetTemperature(roomId, value) {
+    // `until` is local-time HH:MM. The Warmup app sends local time; UTC here
+    // makes the override expire at the wrong wall-clock time (off by the
+    // timezone offset).
     const end = new Date(Date.now() + this._duration * 60000);
     const until = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
 
-    const body = {
-      account: { email: this._username, token: WarmupAccessToken },
+    this.room[roomId] = null;
+    return this._authenticatedFetch(() => ({
+      account: { email: this._username, token: this._token },
       request: {
         method: 'setOverride',
         rooms: [roomId],
@@ -147,37 +181,35 @@ class Warmup4IE {
         temp: parseInt(value * 10, 10),
         until
       }
-    };
-
-    debug('setTargetTemperature', JSON.stringify(body));
-    this.room[roomId] = null;
-    this._sendRequest(body, callback);
+    }));
   }
 
-  setRoomAuto(roomId, callback) {
-    const body = {
-      account: { email: this._username, token: WarmupAccessToken },
+  async setRoomAuto(roomId) {
+    this.room[roomId] = null;
+    return this._authenticatedFetch(() => ({
+      account: { email: this._username, token: this._token },
       request: {
         method: 'setProgramme',
         roomId,
         roomMode: 'prog'
       }
-    };
-
-    this.room[roomId] = null;
-    this._sendRequest(body, callback);
+    }));
   }
 
-  // Hard-off — the Warmup mobile app does this exact same call when you turn a
-  // thermostat off, which is location-wide (`locMode: off`). There is no
-  // per-room hard-off in the Warmup API; this is the documented behaviour.
-  // Filler keys (`holEnd`, `holStart`, `holTemp`, `fixedTemp`, `geoMode`) are
-  // *required* — without them the API returns 200 OK with a JSON error body
-  // and the thermostats never receive the command. Match the Python reference
-  // body byte-for-byte (alex-0103/warmup4IE).
-  setRoomOff(roomId, callback) {
-    const body = {
-      account: { email: this._username, token: WarmupAccessToken },
+  // Hard-off — the Warmup mobile app does this exact same call when you turn
+  // a thermostat off, which is location-wide (`locMode: off`). There is no
+  // per-room hard-off in the Warmup REST API; this is the documented
+  // behaviour. Filler keys (`holEnd`, `holStart`, `holTemp`, `fixedTemp`,
+  // `geoMode`) are *required* — without them the API returns 200 OK with a
+  // JSON error body and the thermostats never receive the command. Match the
+  // Python reference body byte-for-byte (alex-0103/warmup4IE).
+  //
+  // Note: per-room off becomes possible via the GraphQL `deviceOff(lid, rid)`
+  // mutation in v3.0.0. See ROADMAP.md milestone 3.
+  async setRoomOff(roomId) {
+    this.room[roomId] = null;
+    return this._authenticatedFetch(() => ({
+      account: { email: this._username, token: this._token },
       request: {
         method: 'setModes',
         values: {
@@ -186,14 +218,11 @@ class Warmup4IE {
           holStart: '-',
           geoMode: '0',
           holTemp: '-',
-          locId: LocId,
+          locId: this._locId,
           locMode: 'off'
         }
       }
-    };
-
-    this.room[roomId] = null;
-    this._sendRequest(body, callback);
+    }));
   }
 }
 

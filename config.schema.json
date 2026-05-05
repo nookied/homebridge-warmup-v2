@@ -1,0 +1,48 @@
+{
+  "pluginAlias": "warmup4ie",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Homebridge plugin for **Warmup 4iE** underfloor-heating thermostats. Maintained fork of `homebridge-warmup4ie`.",
+  "footerDisplay": "Need help? See the [README](https://github.com/nookied/homebridge-warmup4ie#readme) or [open an issue](https://github.com/nookied/homebridge-warmup4ie/issues).",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "WarmUP",
+        "required": true,
+        "description": "The name shown in Homebridge logs."
+      },
+      "username": {
+        "title": "my.warmup.com email",
+        "type": "string",
+        "format": "email",
+        "required": true,
+        "placeholder": "you@example.com"
+      },
+      "password": {
+        "title": "my.warmup.com password",
+        "type": "string",
+        "format": "password",
+        "required": true
+      },
+      "refresh": {
+        "title": "Polling interval (seconds)",
+        "type": "integer",
+        "default": 60,
+        "minimum": 30,
+        "maximum": 600,
+        "description": "How often to fetch room status from the Warmup cloud. Lower values = more responsive, more API load. Warmup may throttle accounts that poll faster than 30s."
+      },
+      "duration": {
+        "title": "Override duration (minutes)",
+        "type": "integer",
+        "default": 60,
+        "minimum": 5,
+        "maximum": 1440,
+        "description": "How long a manual temperature change stays active before the schedule resumes. Maximum 1440 (24 h)."
+      }
+    }
+  }
+}

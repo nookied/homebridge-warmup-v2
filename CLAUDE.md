@@ -12,7 +12,7 @@ This file is the canonical persistent memory for this project. Any assistant/age
 **Repo:** `https://github.com/nookied/homebridge-warmup4ie` — **maintained fork**, published to npm under a distinct name
 **Original (abandoned reference):** [NorthernMan54/homebridge-warmup4ie](https://github.com/NorthernMan54/homebridge-warmup4ie) — broke at 0.1.0 in Dec 2024 and never fixed; do not pull from or push to it
 **License:** Apache-2.0 (preserved from original; LICENSE file added in 2.0.0)
-**Current version:** 2.0.0 (first release of the fork; tribute to the original v1 lineage)
+**Current version:** 2.1.0 (Verified-plugin prep + UX polish; see ROADMAP.md for the development plan)
 **Engines:** Homebridge `^1.6.0 || ^2.0.0-beta.0`, Node `^18.20.4 || ^20.15.1 || ^22.0.0`
 
 ### Fork rules

@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        node: ['18.20', '20.15', '22']
+        node: ['18.20', '20.15', '22', '24']
 
     steps:
       - uses: actions/checkout@v4

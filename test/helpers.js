@@ -26,16 +26,19 @@ function stubFetch(impl) {
   return () => { globalThis.fetch = original; };
 }
 
-// Build a stubbed `Warmup4IE` instance whose `_sendRequest` captures bodies
-// instead of touching the network. Used for builder-shape assertions.
+// Build a stubbed `Warmup4IE` instance whose `_fetch` is pre-replaced to
+// capture bodies instead of touching the network. Used for builder-shape
+// assertions where we only care about the wire format, not transport.
 function stubClient(Warmup4IE, captureInto, response = { status: { result: 'success' }, response: {} }) {
   const fakeClient = Object.create(Warmup4IE.prototype);
   fakeClient._username = 'user@example.com';
   fakeClient._duration = 60;
+  fakeClient._token = 'mock-token';
+  fakeClient._locId = 12345;
   fakeClient.room = [];
-  fakeClient._sendRequest = (body, cb) => {
+  fakeClient._fetch = async (body) => {
     captureInto.push(body);
-    cb(null, response);
+    return response;
   };
   return fakeClient;
 }

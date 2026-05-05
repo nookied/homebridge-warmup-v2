@@ -4,23 +4,21 @@
 // HH:MM, computed as now + duration minutes.
 //
 // Note: Node doesn't honor mid-process `process.env.TZ` mutations reliably
-// — V8's timezone is read at startup. So instead we use Jest's fake timers
-// to fix `Date.now()` and assert that `until` matches what *local-time*
-// math says, not UTC. CI runs in UTC where the two collide; the parametrized
-// "non-UTC" assertion is opportunistic — it only fires on hosts where the
-// local zone differs from UTC, which in practice is your dev machine and
-// the QA host.
+// — V8's timezone is read at startup. So we use Jest's fake timers to fix
+// `Date.now()` and assert that `until` matches what *local-time* math says.
+// CI runs in UTC where local == UTC; the assertion shape is correct either
+// way. The actual sentinel for the UTC regression is the QA_TESTS.md manual
+// check on a non-UTC host.
 
 const { Warmup4IE } = require('../../src/lib/warmup4ie');
 const { stubClient } = require('../helpers');
 
-function callAndCapture(durationMin) {
+async function callAndCapture(durationMin) {
   const captured = [];
   const client = stubClient(Warmup4IE, captured);
   client._duration = durationMin;
-  return new Promise((resolve) => {
-    client.setTargetTemperature(1, 21, () => resolve(captured[0].request.until));
-  });
+  await client.setTargetTemperature(1, 21);
+  return captured[0].request.until;
 }
 
 function localHHMM(d) {
@@ -46,16 +44,10 @@ describe('setTargetTemperature `until` format', () => {
     const until = await callAndCapture(60);
     const end = new Date(fixed.getTime() + 60 * 60000);
     expect(until).toBe(localHHMM(end));
-    // Note: on UTC hosts (CI) localHHMM == end.toISOString().slice(11,16),
-    // so this single assertion is the same shape either way. The actual
-    // sentinel for the UTC regression is the QA_TESTS.md manual check on
-    // a non-UTC host (your dev machine / Homebridge host in Lisbon).
   });
 
-  test('30 min override at 23:50 local wraps to 00:20 next-day HH:MM (HH only, day implicit)', async () => {
+  test('30 min override at 23:50 local wraps to 00:20 next-day HH:MM', async () => {
     jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'setTimeout', 'setInterval', 'queueMicrotask'] });
-    // Pick a wall-clock-late time in local zone. We can't force the zone,
-    // but we can compute what 23:50 local *is* in UTC for the current host.
     const localLate = new Date();
     localLate.setHours(23, 50, 0, 0);
     jest.setSystemTime(localLate);
@@ -63,7 +55,6 @@ describe('setTargetTemperature `until` format', () => {
     const until = await callAndCapture(30);
     const end = new Date(localLate.getTime() + 30 * 60000);
     expect(until).toBe(localHHMM(end));
-    // Sanity: should start with "00:" since 23:50 + 30 min = 00:20
     expect(until).toBe('00:20');
   });
 

@@ -60,6 +60,14 @@ Add a platform entry to your Homebridge `config.json`:
 | `refresh` | no | `60` | API polling interval, seconds |
 | `duration` | no | `60` | Override duration, minutes — how long a manual temperature change stays active before the schedule resumes |
 
+## Recommended: enable Child Bridge
+
+The Warmup cloud API is occasionally slow (2–5 s for write operations). Running this plugin in a Homebridge **Child Bridge** isolates it from your other plugins, so a slow Warmup API call can't block the main bridge or affect other accessories.
+
+In the Homebridge UI: **Plugins** tab → click the gear icon on `homebridge-warmup4ie-v2` → **Bridge Settings** → enable **Child Bridge**. Restart when prompted. Each Child Bridge appears as a separate accessory in the Home app and will need its own pairing pin (shown in the UI).
+
+This is optional but recommended for any account with multiple thermostats.
+
 ## Behaviour
 
 ### Temperature changes

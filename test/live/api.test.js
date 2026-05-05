@@ -24,9 +24,9 @@ const liveDescribe = liveOn ? describe : describe.skip;
 liveDescribe('Warmup4IE — live API', () => {
   let client;
 
-  test('userLogin succeeds with valid credentials and returns at least one room', () => {
-    return new Promise((resolve, reject) => {
-      client = new Warmup4IE({
+  test('userLogin succeeds with valid credentials and returns at least one room', async () => {
+    client = await new Promise((resolve, reject) => {
+      const c = new Warmup4IE({
         username: process.env.WARMUP_USERNAME,
         password: process.env.WARMUP_PASSWORD,
         refresh: 60,
@@ -40,7 +40,7 @@ liveDescribe('Warmup4IE — live API', () => {
           expect(typeof room.roomName).toBe('string');
           expect(['off', 'fixed', 'override', 'schedule']).toContain(room.runMode);
         });
-        resolve();
+        resolve(c);
       });
     });
   }, 30000);
@@ -51,9 +51,7 @@ liveDescribe('Warmup4IE — live API', () => {
       .map((r) => r.roomId)
       .sort();
 
-    await new Promise((resolve, reject) => {
-      client.getStatus((err) => err ? reject(err) : resolve());
-    });
+    await client.getStatus();
 
     const after = client.room
       .filter((r) => r != null)
@@ -70,16 +68,9 @@ liveDescribe('Warmup4IE — live API', () => {
       const firstRoom = client.room.find((r) => r != null);
       expect(firstRoom).toBeDefined();
 
-      await new Promise((resolve, reject) => {
-        client.setRoomOff(firstRoom.roomId, (err) => err ? reject(err) : resolve());
-      });
-
-      // Give the API a moment to settle
+      await client.setRoomOff(firstRoom.roomId);
       await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      await new Promise((resolve, reject) => {
-        client.setRoomAuto(firstRoom.roomId, (err) => err ? reject(err) : resolve());
-      });
+      await client.setRoomAuto(firstRoom.roomId);
     }, 30000);
   } else {
     // eslint-disable-next-line jest/no-disabled-tests, jest/expect-expect
