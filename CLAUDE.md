@@ -12,7 +12,7 @@ This file is the canonical persistent memory for this project. Any assistant/age
 **Repo:** [`https://github.com/nookied/homebridge-warmup4ie-v2`](https://github.com/nookied/homebridge-warmup4ie-v2) — **maintained fork**, published to npm under a distinct name
 **Original (abandoned reference):** [NorthernMan54/homebridge-warmup4ie](https://github.com/NorthernMan54/homebridge-warmup4ie) — broke at 0.1.0 in Dec 2024 and never fixed; do not pull from or push to it
 **License:** Apache-2.0 (preserved from original; LICENSE file added in 2.0.0)
-**Current version:** **3.0.0** (GraphQL transport + per-room Off; published 2026-05-05). Unreleased changes since may be on `main` — check `git log v3.0.0..main`.
+**Current version:** **3.1.0** (Dynamic platform migration; published 2026-05-05). Major v3 milestones: 3.0 GraphQL transport + per-room Off, 3.1 dynamic platform / Verified-eligible. Unreleased changes (if any) on `main` — check `git log v3.1.0..main`.
 **Engines:** Homebridge `^1.6.0 || ^2.0.0`; Node `^18.20.4 || ^20.15.1 || ^22.0.0 || ^24.0.0`
 
 ### Fork rules
@@ -34,18 +34,22 @@ The plugin authenticates against the my.warmup.com cloud via REST `userLogin` (`
 ```
 homebridge-warmup4ie-v2/
 ├── src/
-│   ├── index.js                      Homebridge entry; registerPlatform + accessory glue
-│   │   ├── module.exports(homebridge)        Captures hap.{Service,Characteristic,HapStatusError,HAPStatus}
-│   │   ├── warmup4iePlatform                 Static platform (`accessories(callback)` flow), instance-scoped state
-│   │   ├── updateStatus(platform, room)      Pushes characteristics + refreshes per-acc snapshot
-│   │   ├── effectiveTargetTemp(room)         Clamps targetTemp to [minTemp, ∞)
-│   │   ├── asHapStatusError(err)             Maps Warmup errors → HAP status codes
-│   │   └── Warmup4ieAccessory                One per Warmup room:
-│   │                                         - Service.Thermostat (primary)
-│   │                                         - Service.TemperatureSensor (`<name> Air`)
-│   │                                         - Service.AccessoryInformation
-│   │                                         + handleTargetHeatingCoolingSet (.onSet async)
-│   │                                         + handleTargetTemperatureSet (.onSet async, debounced)
+│   ├── index.js                      Homebridge entry; registerPlatform + dynamic-platform glue
+│   │   ├── module.exports(homebridge)        Captures hap.{Service,Characteristic,HapStatusError,HAPStatus,uuid} + platformAccessory
+│   │   ├── warmup4iePlatform                 Dynamic platform — registerPlatform(.., true)
+│   │   │   ├── configureAccessory(cached)        Stash cached PlatformAccessory in this.accessories Map
+│   │   │   ├── discoverDevices()                 Login + fetch rooms → reconcileAccessories
+│   │   │   ├── reconcileAccessories(rooms)       Diff live vs cached → register/unregister/update deltas
+│   │   │   ├── startPolling()                    setInterval(getStatus + updateAccessoryState per room)
+│   │   │   └── shutdown()                        Clear poll timer + pending debouncers (api 'shutdown' event)
+│   │   ├── attachAccessoryServices(p, acc, room) Idempotent service setup (Information/Thermostat/TemperatureSensor)
+│   │   ├── pushRoomState(acc, room)              Updates HAP characteristics from a room snapshot
+│   │   ├── updateAccessoryState(p, room)         Looks up acc by UUID, refreshes context.room + pushRoomState
+│   │   ├── handleTargetHeatingCoolingSet         .onSet handler — Off/Heat/Auto switching
+│   │   ├── handleTargetTemperatureSet            .onSet handler — debounced (300 ms trailing edge)
+│   │   ├── effectiveTargetTemp(room)             Clamps targetTemp to [minTemp, ∞)
+│   │   ├── asHapStatusError(err)                 Maps Warmup errors → HAP status codes
+│   │   └── uuidForRoom(roomId)                   api.hap.uuid.generate('warmup4ie:' + roomId)
 │   │
 │   └── lib/
 │       ├── warmup4ie.js                      Warmup cloud API client (class Warmup4IE)
@@ -107,12 +111,18 @@ homebridge-warmup4ie-v2/
 
 ## How it runs
 
-1. Homebridge calls `module.exports(homebridge)` → captures HAP types → `registerPlatform("homebridge-warmup4ie-v2", "warmup4ie", warmup4iePlatform)`.
-2. `warmup4iePlatform.accessories(callback)` constructs `new Warmup4IE(this, cb)`. The constructor's `_bootstrap` runs `_login` (REST userLogin → token) → `_fetchRooms` (GraphQL `user.owned[].rooms` → normalize → fill `this.room[]`). The token is stored on the instance (`this._token`) and rides as the `warmup-authorization` header on every GraphQL request.
-3. For each room returned, a `Warmup4ieAccessory` is pushed to `myAccessories` and surfaced to Homebridge.
-4. The platform schedules a single `setInterval` at `refresh` seconds. Each tick: `await thermostats.getStatus()` (GraphQL fetch) → iterate `thermostats.room[]` → `updateStatus(room)` for each, pushing characteristics to HomeKit and refreshing the per-accessory snapshot.
-5. On HomeKit writes, `.onSet(async)` handlers call into the lib (`setRoomAuto` / `setRoomOff` / `setTargetTemperature`). Errors are mapped to HAP status codes via `asHapStatusError` and re-thrown — HomeKit shows "Not Responding" with the appropriate reason.
-6. Token expiry (HTTP 401, REST code 100/102/103, GraphQL "token"/"auth"/"unauthorized"/"forbidden" message) triggers one re-auth + retry per request via `_authenticatedGraphQL`.
+1. Homebridge calls `module.exports(homebridge)` → captures HAP types + `platformAccessory` ctor + `uuid` → `registerPlatform("homebridge-warmup4ie-v2", "warmup4ie", warmup4iePlatform, true)` (4th arg = dynamic).
+2. Homebridge instantiates `warmup4iePlatform(log, config, api)`. The constructor reads + clamps config, sets up `this.accessories: Map<UUID, PlatformAccessory>` and `this._debouncers: Map<UUID, Map<char, Timeout>>`, and registers `api.on('didFinishLaunching', () => discoverDevices())` plus `api.on('shutdown', () => shutdown())`.
+3. For each accessory in Homebridge's on-disk cache, `configureAccessory(accessory)` is called synchronously — we stash it in `this.accessories` keyed by UUID. Service handlers are NOT bound here (we don't yet know if Warmup still has the room).
+4. After all `configureAccessory` calls, `didFinishLaunching` fires → `discoverDevices()` constructs `new Warmup4IE(this, cb)`. The lib's `_bootstrap` runs `_login` (REST userLogin → token) → `_fetchRooms` (GraphQL `user.owned[].rooms` → normalize → fill `this.room[]`). The token is stored on the instance (`this._token`) and rides as the `warmup-authorization` header on every GraphQL request.
+5. `reconcileAccessories(rooms)` diffs live rooms vs `this.accessories`:
+   - Match by UUID (`api.hap.uuid.generate('warmup4ie:' + roomId)`) → reuse cached accessory; refresh services + handlers via `attachAccessoryServices`; `api.updatePlatformAccessories([acc])`.
+   - Live but not cached → `new api.platformAccessory(name, uuid)`; attach services; `api.registerPlatformAccessories(plugin, alias, [acc])`.
+   - Cached but not live → `api.unregisterPlatformAccessories(plugin, alias, [acc])` + drop from Map.
+6. Polling: single `setInterval` at `refresh` seconds. Each tick: `await thermostats.getStatus()` (GraphQL fetch) → `rooms.forEach(updateAccessoryState)` looks up the accessory by UUID and pushes characteristics + refreshes `accessory.context.room`.
+7. On HomeKit writes, `.onSet(async)` closures (bound at attach time) call into the lib (`setRoomAuto` / `setRoomOff` / `setTargetTemperature`). Errors are mapped to HAP status codes via `asHapStatusError` and re-thrown — HomeKit shows "Not Responding" with the appropriate reason. `handleTargetTemperatureSet` is debounced 300 ms trailing-edge to coalesce slider drags.
+8. Token expiry (HTTP 401, REST code 100/102/103, GraphQL "token"/"auth"/"unauthorized"/"forbidden" message) triggers one re-auth + retry per request via `_authenticatedGraphQL`.
+9. Shutdown: `api.on('shutdown', ...)` calls `platform.shutdown()` which clears the poll interval and any pending debouncer timers (avoids zombie callbacks firing after Homebridge has stopped).
 
 ## API client cheat sheet
 
@@ -235,16 +245,17 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 ## Known issues / tech debt
 
 ### Open
-1. **Static platform pattern** — uses 3-arg `registerPlatform(...)`, so accessories are returned via the `accessories(callback)` legacy flow. Cached accessories aren't supported; restarts re-create everything. Homebridge still supports static platforms, but current Verified Plugin requirements call for a dynamic platform. Roadmap **M4** addresses this.
-2. **`runMode` edge cases unhandled** — `state.js` falls through to `HEAT` for `anti_frost`, `holiday`, `gradual`, `fil_pilote`, `relay`, `previous`. Roadmap **M6** has more accurate mappings; not blocking today.
-3. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `deviceSN` today, but the plugin does not yet fetch/use enough reliable per-model metadata for all supported devices. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
-4. **`outputStatus` for accurate "is heating now"** — schema has `Thermostat4iE.parameters.outputStatus` (relay state), which is more accurate than the current `currentTemp < targetTemp` heuristic. Not in the GraphQL query today (was removed during the v3 live-test 409 debugging). Roadmap **M6**.
+1. **`runMode` edge cases unhandled** — `state.js` falls through to `HEAT` for `anti_frost`, `holiday`, `gradual`, `fil_pilote`, `relay`, `previous`. Roadmap **M6** has more accurate mappings; not blocking today.
+2. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `deviceSN` today, but the plugin does not yet fetch/use enough reliable per-model metadata for all supported devices. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
+3. **`outputStatus` for accurate "is heating now"** — schema has `Thermostat4iE.parameters.outputStatus` (relay state), which is more accurate than the current `currentTemp < targetTemp` heuristic. Not in the GraphQL query today (was removed during the v3 live-test 409 debugging). Roadmap **M6**.
+4. **No Eve / fakegato history graphs** — now that we're on a dynamic platform with persistent accessories, `fakegato-history@^0.6.7` could be re-added to surface temperature/heating-state history in the Eve app. Roadmap **M5**.
 
 ### Resolved
 - **v2.0:** restored `setRoomOff` body (regression in upstream 0.1.0); restored local-time `until` (regression in 0.1.0); native fetch (deprecated `request` removed); full test suite; CI; LICENSE; rebrand as `homebridge-warmup4ie-v2`.
 - **v2.1:** `config.schema.json`; token refresh on 401; HAP error categorization; debounced TargetTemperature; `.onSet(async)` modern handlers; instance state (was module-level); model-coverage doc fix.
 - **v3.0:** GraphQL transport (REST kept only for `userLogin`); per-room Off via `deviceOff(lid, rid)`; `deviceOverride` with explicit minutes (UTC-vs-local class of bugs eliminated forever); foundation for M5/M6 features.
-- **Unreleased:** `src/index.js` platform state is fully instance-scoped (`thermostats`, accessory list/map, poll timer); missing credentials and failed bootstrap do not start polling; write methods preserve last-known room cache on errors; `_fetchRooms` replaces the cache so removed rooms do not linger; target temperatures use `Math.round(value * 10)` instead of truncating floating-point tenths.
+- **v3.0.1:** platform-instance state isolation; failed bootstrap doesn't poll; write methods preserve cache on errors; `_fetchRooms` replaces cache (removed rooms don't linger); `Math.round(value * 10)` for tenths; login token validation; `connection: close` (kills TLSWRAP warning in tests).
+- **v3.1:** dynamic platform (`registerPlatform(.., true)`, `configureAccessory`, `discoverDevices`, `reconcileAccessories`); cached-accessory restoration survives Warmup-cloud outages at boot; stable per-room UUIDs; `Warmup4ieAccessory` class replaced by free functions on `PlatformAccessory`. **All Verified-Plugin requirements now met** — application queued as Roadmap M7.
 
 ### By design (won't fix)
 - **First location only.** `_fetchRooms` takes `user.owned[0]`. If you have multiple Warmup locations on one account (e.g. primary residence + holiday home), only the first one is exposed. To expose a second location, run a second Homebridge child bridge with another account. A `location: "name"` config option to filter by name is feasible and would mirror the Python reference, but isn't planned.

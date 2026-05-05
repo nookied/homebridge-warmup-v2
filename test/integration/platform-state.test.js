@@ -1,67 +1,149 @@
 /* eslint-env jest */
 
-// Platform-level regressions that are easiest to catch at the Homebridge
-// wrapper layer: per-instance API clients, missing config, and bootstrap
-// failure timer behaviour.
+// Platform-level regressions for the dynamic-platform wiring (v3.1+):
+// - Cached accessories are honoured (`configureAccessory`)
+// - Live discovery registers new + unregisters stale accessories
+// - Multiple platform instances don't share state (no module-level singletons)
+// - Missing config / failed bootstrap don't start polling or tear out cache
+
+class FakePlatformAccessory {
+  constructor(name, accessoryUuid) {
+    this.displayName = name;
+    this.UUID = accessoryUuid;
+    this.context = {};
+    this._services = new Map();
+  }
+  getService(type) { return this._services.get(typeKey(type)); }
+  addService(type, name) {
+    const svc = makeService(type, name);
+    this._services.set(typeKey(type), svc);
+    return svc;
+  }
+}
+
+function typeKey(type) {
+  // The fake hap "types" we plug in are just unique sentinel strings.
+  return type && type.__sentinel;
+}
+
+function makeService(type, name) {
+  const characteristics = new Map();
+  return {
+    type,
+    name,
+    setCharacteristic: function (charType) {
+      // Chainable; ignore values for this test.
+      const c = ensureCharacteristic(characteristics, charType);
+      void c;
+      return this;
+    },
+    getCharacteristic: function (charType) {
+      return ensureCharacteristic(characteristics, charType);
+    },
+    setPrimaryService: jest.fn(),
+    isPrimaryService: false
+  };
+}
+
+function ensureCharacteristic(map, charType) {
+  let c = map.get(charType);
+  if (!c) {
+    let setHandler = null;
+    c = {
+      setProps: jest.fn(function () { return this; }),
+      onSet: jest.fn(function (handler) { setHandler = handler; return this; }),
+      updateValue: jest.fn(function () { return this; }),
+      // Allow tests to invoke the bound onSet handler directly.
+      _invokeSet: (value) => setHandler && setHandler(value)
+    };
+    map.set(charType, c);
+  }
+  return c;
+}
 
 function fakeHomebridge() {
-  const calls = [];
+  const calls = { register: [], unregister: [], update: [] };
+  const sentinel = (n) => ({ __sentinel: n });
   return {
     calls,
     hap: {
-      Service: {},
-      Characteristic: {},
+      Service: {
+        AccessoryInformation: sentinel('AccessoryInformation'),
+        Thermostat: sentinel('Thermostat'),
+        TemperatureSensor: sentinel('TemperatureSensor')
+      },
+      Characteristic: {
+        Manufacturer: 'Manufacturer',
+        Model: 'Model',
+        SerialNumber: 'SerialNumber',
+        FirmwareRevision: 'FirmwareRevision',
+        Name: 'Name',
+        CurrentTemperature: 'CurrentTemperature',
+        TargetTemperature: 'TargetTemperature',
+        CurrentHeatingCoolingState: 'CurrentHeatingCoolingState',
+        TargetHeatingCoolingState: 'TargetHeatingCoolingState'
+      },
       HapStatusError: class HapStatusError extends Error {
-        constructor(status) {
-          super(String(status));
-          this.status = status;
-        }
+        constructor(status) { super(String(status)); this.status = status; }
       },
       HAPStatus: {
         OPERATION_TIMED_OUT: -70408,
         INSUFFICIENT_AUTHORIZATION: -70411,
         SERVICE_COMMUNICATION_FAILURE: -70402
+      },
+      uuid: {
+        generate: (seed) => `UUID(${seed})`
       }
     },
+    platformAccessory: FakePlatformAccessory,
+    _events: new Map(),
+    on: function (name, handler) {
+      const list = this._events.get(name) || [];
+      list.push(handler);
+      this._events.set(name, list);
+    },
+    emit: function (name) {
+      (this._events.get(name) || []).forEach((h) => h());
+    },
     registerPlatform: (pluginName, platformName, ctor) => {
-      calls.push({ pluginName, platformName, ctor });
+      calls.register.push({ pluginName, platformName, ctor });
+    },
+    registerPlatformAccessories: (pluginName, platformName, accessories) => {
+      calls.register.push({ kind: 'accessories', accessories });
+    },
+    unregisterPlatformAccessories: (pluginName, platformName, accessories) => {
+      calls.unregister.push(...accessories);
+    },
+    updatePlatformAccessories: (accessories) => {
+      calls.update.push(...accessories);
     }
   };
 }
 
 function fakeLog() {
-  return {
-    info: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn()
-  };
+  return { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
 }
 
 function room(roomId, roomName) {
   return {
-    roomId,
-    roomName,
-    runMode: 'schedule',
-    roomMode: 'program',
-    targetTemp: 210,
-    currentTemp: 200,
-    airTemp: '200',
-    minTemp: 50,
-    maxTemp: 300
+    roomId, roomName,
+    runMode: 'schedule', roomMode: 'program',
+    targetTemp: 210, currentTemp: 200, airTemp: '200',
+    minTemp: 50, maxTemp: 300
   };
 }
 
-describe('warmup4ie platform state', () => {
-  let Warmup4IE;
-  let clients;
+describe('warmup4ie dynamic platform', () => {
   let PlatformCtor;
+  let MockWarmup4IE;
+  let clients;
+  let api;
 
-  beforeEach(() => {
+  function instantiatePlugin() {
     jest.resetModules();
     clients = [];
-
     jest.doMock('../../src/lib/warmup4ie', () => {
-      Warmup4IE = jest.fn(function MockWarmup4IE(options, callback) {
+      MockWarmup4IE = jest.fn(function (options, callback) {
         this.options = options;
         this.room = [];
         this.getStatus = jest.fn(async () => this.room.filter(Boolean));
@@ -79,61 +161,141 @@ describe('warmup4ie platform state', () => {
         this.room[id] = room(id, options.username);
         queueMicrotask(() => callback(null, [this.room[id]]));
       });
-      return { Warmup4IE };
+      return { Warmup4IE: MockWarmup4IE };
     });
 
-    const hb = fakeHomebridge();
+    api = fakeHomebridge();
     const plugin = require('../../src/index.js');
-    plugin(hb);
-    PlatformCtor = hb.calls[0].ctor;
-  });
+    plugin(api);
+    PlatformCtor = api.calls.register[0].ctor;
+  }
 
-  afterEach(() => {
-    jest.dontMock('../../src/lib/warmup4ie');
-  });
+  beforeEach(() => instantiatePlugin());
+  afterEach(() => jest.dontMock('../../src/lib/warmup4ie'));
 
-  test('missing credentials do not create a Warmup client or poll timer', () => {
-    const platform = new PlatformCtor(fakeLog(), { name: 'WarmUP' });
-    let returned;
+  test('missing credentials: no Warmup client, no poll timer, cached accessories preserved', () => {
+    const platform = new PlatformCtor(fakeLog(), { name: 'WarmUP' }, api);
+    // Pre-populate a cached accessory (Homebridge restored it from disk).
+    const cached = new FakePlatformAccessory('Cached Room', 'UUID(warmup4ie:999)');
+    platform.configureAccessory(cached);
 
-    platform.accessories((accessories) => { returned = accessories; });
+    api.emit('didFinishLaunching');
 
-    expect(returned).toEqual([]);
-    expect(Warmup4IE).not.toHaveBeenCalled();
+    expect(MockWarmup4IE).not.toHaveBeenCalled();
     expect(platform._pollTimer).toBeNull();
+    // Cache untouched — we don't rip out cached accessories on a config typo.
+    expect(platform.accessories.size).toBe(1);
+    expect(api.calls.unregister).toHaveLength(0);
   });
 
-  test('bootstrap failure returns no accessories and does not start polling', async () => {
-    const platform = new PlatformCtor(fakeLog(), {
-      username: 'fail@example.com',
-      password: 'p'
-    });
+  test('failed bootstrap: cached accessories preserved, no polling started', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'fail@example.com', password: 'p' },
+      api
+    );
+    const cached = new FakePlatformAccessory('Bedroom', 'UUID(warmup4ie:777)');
+    platform.configureAccessory(cached);
 
-    const returned = await new Promise((resolve) => {
-      platform.accessories(resolve);
-    });
+    api.emit('didFinishLaunching');
+    await new Promise((r) => queueMicrotask(r));
 
-    expect(returned).toEqual([]);
     expect(platform.thermostats).toBeNull();
     expect(platform._pollTimer).toBeNull();
+    // Cache survives a failed bootstrap so HomeKit doesn't lose tiles
+    // because the Warmup cloud was briefly down at boot.
+    expect(platform.accessories.size).toBe(1);
+    expect(api.calls.unregister).toHaveLength(0);
+  });
+
+  test('discovery: registers new accessories for live rooms not in the cache', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'one@example.com', password: 'p' },
+      api
+    );
+
+    api.emit('didFinishLaunching');
+    await new Promise((r) => queueMicrotask(r));
+    await new Promise((r) => queueMicrotask(r)); // second tick for the inner microtask
+
+    // One room → one new accessory registered.
+    const accessoryRegistrations = api.calls.register.filter((c) => c.kind === 'accessories');
+    expect(accessoryRegistrations).toHaveLength(1);
+    expect(accessoryRegistrations[0].accessories).toHaveLength(1);
+    expect(accessoryRegistrations[0].accessories[0].displayName).toBe('one@example.com');
+
+    platform.shutdown();
+  });
+
+  test('discovery: stale cached accessory not in live rooms is unregistered', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'one@example.com', password: 'p' },
+      api
+    );
+    // Cache an accessory for a room that's no longer in the Warmup account.
+    const stale = new FakePlatformAccessory('Old Room', 'UUID(warmup4ie:999)');
+    platform.configureAccessory(stale);
+
+    api.emit('didFinishLaunching');
+    await new Promise((r) => queueMicrotask(r));
+    await new Promise((r) => queueMicrotask(r));
+
+    expect(api.calls.unregister).toContain(stale);
+    expect(platform.accessories.has('UUID(warmup4ie:999)')).toBe(false);
+
+    platform.shutdown();
+  });
+
+  test('discovery: cached accessory matching a live room is reused (not unregistered)', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'one@example.com', password: 'p' },
+      api
+    );
+    // Cache the very accessory the live discovery will return.
+    const liveUuid = 'UUID(warmup4ie:100001)';
+    const cached = new FakePlatformAccessory('Living Room', liveUuid);
+    platform.configureAccessory(cached);
+
+    api.emit('didFinishLaunching');
+    await new Promise((r) => queueMicrotask(r));
+    await new Promise((r) => queueMicrotask(r));
+
+    expect(api.calls.unregister).not.toContain(cached);
+    // No NEW registration — cached one was reused.
+    const newRegistrations = api.calls.register.filter((c) => c.kind === 'accessories');
+    expect(newRegistrations).toHaveLength(0);
+    // It's still the same accessory in the platform map.
+    expect(platform.accessories.get(liveUuid)).toBe(cached);
+
+    platform.shutdown();
   });
 
   test('two platform instances keep write operations on their own Warmup clients', async () => {
-    const platformOne = new PlatformCtor(fakeLog(), {
-      username: 'one@example.com',
-      password: 'p'
-    });
-    const platformTwo = new PlatformCtor(fakeLog(), {
-      username: 'two@example.com',
-      password: 'p'
-    });
-    const [accessoriesOne, accessoriesTwo] = await Promise.all([
-      new Promise((resolve) => { platformOne.accessories(resolve); }),
-      new Promise((resolve) => { platformTwo.accessories(resolve); })
-    ]);
+    const platformOne = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    const platformTwo = new PlatformCtor(
+      fakeLog(), { username: 'two@example.com', password: 'p' }, api
+    );
 
-    await accessoriesOne[0].handleTargetHeatingCoolingSet(0);
-    await accessoriesTwo[0].handleTargetHeatingCoolingSet(3);
+    api.emit('didFinishLaunching');
+    await new Promise((r) => queueMicrotask(r));
+    await new Promise((r) => queueMicrotask(r));
+
+    // Pull the registered accessories out so we can fire setters on them.
+    const accessoryOne = platformOne.accessories.get('UUID(warmup4ie:100001)');
+    const accessoryTwo = platformTwo.accessories.get('UUID(warmup4ie:200002)');
+    expect(accessoryOne).toBeDefined();
+    expect(accessoryTwo).toBeDefined();
+
+    // Invoke the .onSet handler attached to TargetHeatingCoolingState directly.
+    const thermoOne = accessoryOne.getService(api.hap.Service.Thermostat);
+    const thermoTwo = accessoryTwo.getService(api.hap.Service.Thermostat);
+    await thermoOne.getCharacteristic('TargetHeatingCoolingState')._invokeSet(0);
+    await thermoTwo.getCharacteristic('TargetHeatingCoolingState')._invokeSet(3);
 
     expect(clients[0].setRoomOff).toHaveBeenCalledWith(100001);
     expect(clients[0].setRoomAuto).not.toHaveBeenCalled();
@@ -142,5 +304,19 @@ describe('warmup4ie platform state', () => {
 
     platformOne.shutdown();
     platformTwo.shutdown();
+  });
+
+  test('shutdown: clears the poll timer and pending debouncers', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+
+    api.emit('didFinishLaunching');
+    await new Promise((r) => queueMicrotask(r));
+    await new Promise((r) => queueMicrotask(r));
+
+    expect(platform._pollTimer).not.toBeNull();
+    platform.shutdown();
+    expect(platform._pollTimer).toBeNull();
   });
 });

@@ -7,6 +7,107 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.1.0] — 2026-05-05
+
+Roadmap [Milestone 4](ROADMAP.md) — **Dynamic platform migration.** Closes
+the last Verified-Plugin blocker and unlocks fakegato-history (queued for
+M5). `config.json` is unchanged; behaviour is unchanged in steady state.
+
+### One-time migration cost
+
+Existing v3.0.x users will see their thermostat tiles **re-create as fresh
+accessories on first restart after upgrading to 3.1**. The static-platform
+versions never wrote anything to Homebridge's accessory cache, so the new
+dynamic-platform startup runs against an empty cache and registers all
+rooms as new. In Apple Home: room assignments, automation references, and
+custom tile names will need re-doing once. Cosmetic, not data-loss.
+
+This is a one-time event — every subsequent upgrade reuses the cache and
+preserves your HomeKit setup.
+
+### Why this is a minor version (not major)
+
+No breaking change to `config.json` keys, plugin behaviour, or HomeKit
+accessory shape. The accessory re-creation is an upgrade-time mechanic
+of switching to a new Homebridge plugin pattern, not a deliberate breaking
+change. SemVer guidance for Homebridge plugins treats it as a minor.
+
+### What dynamic platform actually means for users
+
+- **Resilience to Warmup outages at boot.** v3.0.x: if the Warmup cloud is
+  down or your internet's out when Homebridge restarts, you get *zero*
+  thermostat tiles. v3.1: cached accessories stay visible (HomeKit shows
+  "Not Responding" until the API recovers).
+- **No flicker on restart.** Static accessories briefly disappear and
+  re-appear during Homebridge restarts. Dynamic ones don't.
+- **Foundation for history graphs.** `fakegato-history` requires
+  persistent accessories — Roadmap M5 is unblocked.
+- **Eligible for [Homebridge Verified](https://github.com/homebridge/verified).**
+  Application is queued as Roadmap M7 (after a few weeks of stability).
+
+### Added
+
+- **Dynamic platform registration.** `module.exports` now passes `true` as
+  the 4th arg of `registerPlatform` and the platform implements the
+  Homebridge `DynamicPlatformPlugin` contract.
+- **`configureAccessory(cached)`.** Called by Homebridge for each cached
+  accessory at startup; stored in `platform.accessories` Map keyed by UUID.
+- **`discoverDevices()`** runs after Homebridge fires `didFinishLaunching`.
+  Logs in, fetches rooms, and computes the register/unregister deltas
+  against the cached set.
+- **`reconcileAccessories(rooms)`** — diffs live rooms vs cached, registers
+  new ones via `api.registerPlatformAccessories`, unregisters stale ones
+  via `api.unregisterPlatformAccessories`, refreshes services on the
+  matched ones via `api.updatePlatformAccessories`.
+- **Stable per-accessory UUID.** `api.hap.uuid.generate('warmup4ie:' +
+  roomId)` ensures every restart of the same Warmup room maps to the same
+  HomeKit accessory.
+- **`api.on('shutdown', ...)`** handler calls `platform.shutdown()`,
+  clearing the poll timer and any pending debouncer timers (was leaving
+  zombie callbacks in v3.0.x).
+- **Five new platform-level integration tests** (`test/integration/platform-state.test.js`):
+  cached-accessory-restoration, register-new, unregister-stale, reuse-matched,
+  shutdown timer cleanup, plus the existing multi-instance isolation test
+  rebuilt for the dynamic shape.
+
+### Changed
+
+- **`Warmup4ieAccessory` class is gone.** Replaced by free functions that
+  mutate `PlatformAccessory` objects in place: `attachAccessoryServices`,
+  `pushRoomState`, `updateAccessoryState`, `handleTargetHeatingCoolingSet`,
+  `handleTargetTemperatureSet`. Closures capture `platform` + `accessory`
+  at attach time, so the bound `.onSet` handlers don't need a wrapper class.
+- **Per-accessory state on `accessory.context`.** `roomId` and the latest
+  `room` snapshot live there (Homebridge persists context to disk between
+  restarts). Debounce timers stay in-memory only via a per-platform
+  `_debouncers: Map<UUID, Map<char, Timeout>>` registry.
+- **Service `Name` is set only on first add.** Refreshing a cached
+  accessory no longer overwrites a user's rename in Apple Home.
+
+### Removed
+
+- **`accessories(callback)` static-platform method.** Gone for good.
+- **`Warmup4ieAccessory` class** (was just a getServices() factory plus
+  some setter handlers). The dynamic platform builds services directly
+  on `PlatformAccessory` objects; no wrapper needed.
+
+### Tests
+
+- 73 passing live (71 offline + 2 live API). Up from 69 in 3.0.1.
+- New: `homebridge-loadtime.test.js` checks the 4th arg to `registerPlatform`
+  is `true` (dynamic flag).
+- Rewritten: `platform-state.test.js` exercises the dynamic flow end-to-end
+  with a fake Homebridge API + fake `PlatformAccessory`. Covers every
+  branch of `reconcileAccessories`.
+
+### Sources of truth used
+
+- [Homebridge Plugin Template (DynamicPlatformPlugin reference impl)](https://github.com/homebridge/homebridge-plugin-template)
+- [Homebridge Verified Plugin requirements](https://github.com/homebridge/plugins) (for `dynamic = true`, `configureAccessory`)
+- [HAP-NodeJS PlatformAccessory + UUID API](https://developers.homebridge.io/HAP-NodeJS/)
+
+---
+
 ## [3.0.1] — 2026-05-05
 
 Maintenance pass after the v3.0 GraphQL release. Bug fixes, cache

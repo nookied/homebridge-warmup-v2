@@ -33,7 +33,7 @@ Source: [`homebridge/plugins` requirements](https://github.com/homebridge/plugin
 
 | # | Requirement | Met? | Action |
 |---|---|---|---|
-| 1 | Dynamic platform plugin | ❌ | **Blocker** — see Milestone 4 |
+| 1 | Dynamic platform plugin | ✅ | Shipped in v3.1.0 (Milestone 4). |
 | 2 | Doesn't duplicate an existing verified plugin | ✅ | None |
 | 3 | Published to npm with source on GitHub, issues enabled | ✅ | None |
 | 4 | A GitHub release per new version with notes | 🟡 | Auto-created by `release.yml` going forward |
@@ -45,7 +45,7 @@ Source: [`homebridge/plugins` requirements](https://github.com/homebridge/plugin
 | 10 | Files stored under HB storage dir | ✅ | None (no disk files yet) |
 | 11 | Catches and logs own errors, no unhandled exceptions | ✅ | Missing config and bootstrap failure now return no accessories and do not start polling. |
 
-**One blocker remains: #1 dynamic platform.** Re-check the current Homebridge/plugins issue template and Node policy before filing the Verified application.
+**All requirements met as of v3.1.0.** Verified-Plugin application is queued as Milestone 7 — wait for a few weeks of stability + a couple of installs first, then file via the standard `homebridge/plugins` issue template.
 
 ---
 
@@ -150,9 +150,13 @@ The REST API at `api.warmup.com/apps/app/v1` is a legacy compatibility layer. Ev
 
 ---
 
-### Milestone 4 — v3.1.0 — Dynamic platform migration
+### ✅ Milestone 4 — v3.1.0 — Dynamic platform migration — SHIPPED
 
 **Goal:** Migrate from static `accessories(callback)` to `DynamicPlatformPlugin` with cached accessories. Closes the final Verified blocker.
+
+**Shipped 2026-05-05.** All items below complete. See `CHANGELOG.md` for detail.
+
+**One-time migration cost (as predicted):** existing v3.0.x users see their thermostat tiles re-create as fresh accessories on first restart. Old static-platform versions never wrote to Homebridge's accessory cache, so the dynamic-platform startup runs against an empty cache. Future upgrades preserve the cache.
 
 #### Why
 
