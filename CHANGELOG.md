@@ -62,6 +62,35 @@ breaking changes; existing `config.json` continues to work unchanged.
 - 56 passing (+6 since 2.0.0). New: token-refresh integration tests,
   `_isTokenError` unit tests, async/await test patterns throughout.
 
+### Documentation — model coverage correction
+The original plugin (and our initial v2 docs) implied this only worked with
+the **4iE** thermostat. In fact, every Warmup Wi-Fi thermostat that pairs
+with the MyHeating app uses the same cloud API, so the plugin works with
+the entire smart-thermostat lineup:
+
+- **4iE Smart Wi-Fi** (legacy, ~2014, discontinued — replaced by 6iE)
+- **6iE Smart Wi-Fi** (active)
+- **7iE Smart Matter Wi-Fi** (active flagship; also supports native Matter)
+- **Element Wi-Fi** (active, entry-level)
+- **Terra Wi-Fi** (active, eco-line)
+- Rebadged OEM units: Laticrete, Rointe, Porcelanosa, Equus, Savant
+- ❌ **Tempo** is NOT supported (programmable only, no Wi-Fi)
+
+Doc corrections in this release:
+- README rewritten with a "Supported thermostats" table and a note on the
+  legacy `4ie` package name
+- `package.json`: `displayName` changed from `"Homebridge Warmup 4iE"` to
+  `"Homebridge Warmup Wi-Fi Thermostats"`; `description` and `keywords`
+  updated to mention 6iE/7iE/Element/Terra/MyHeating
+- `config.schema.json`: `headerDisplay` lists all supported models
+- Accessory `Model` characteristic: was `"4iE"` (incorrect for users on
+  any other model), now `"Wi-Fi Thermostat"` (a generic accurate label).
+  v3.0 will populate this with the real model name from GraphQL
+  (`appFw` / `deviceModel`).
+- Removed the broken link `https://www.warmup.com/thermostats/smart/4ie`
+  (404); replaced with the correct overview URL.
+- `CLAUDE.md` purpose section + `ROADMAP.md` introduction updated.
+
 ---
 
 ## [2.0.0] — 2026-05-05

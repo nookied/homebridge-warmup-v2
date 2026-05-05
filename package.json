@@ -1,8 +1,8 @@
 {
   "name": "homebridge-warmup4ie-v2",
-  "displayName": "Homebridge Warmup 4iE",
+  "displayName": "Homebridge Warmup Wi-Fi Thermostats",
   "version": "2.1.0",
-  "description": "Homebridge plugin for Warmup 4iE underfloor-heating thermostats. Maintained fork of homebridge-warmup4ie with fixes for Homebridge 2.0 and the broken Off control in 0.1.0–0.1.1.",
+  "description": "Homebridge plugin for Warmup Wi-Fi underfloor-heating thermostats (4iE, 6iE, 7iE, Element, Terra). Maintained fork of homebridge-warmup4ie with fixes for Homebridge 2.0 and the broken Off control in 0.1.0–0.1.1.",
   "main": "src/index.js",
   "scripts": {
     "lint": "eslint --max-warnings=0 .",
@@ -21,6 +21,11 @@
     "homebridge-warmup4ie",
     "warmup4ie",
     "warmup",
+    "warmup-6ie",
+    "warmup-7ie",
+    "warmup-element",
+    "warmup-terra",
+    "myheating",
     "thermostat",
     "underfloor-heating",
     "homekit"

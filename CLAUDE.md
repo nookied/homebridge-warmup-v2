@@ -8,7 +8,7 @@ This file is the canonical persistent memory for this project. Any assistant/age
 
 **npm name:** `homebridge-warmup4ie-v2`
 **Type:** Homebridge plugin (Node.js, CommonJS)
-**Purpose:** Expose Warmup 4iE underfloor-heating thermostats as HomeKit Thermostat accessories
+**Purpose:** Expose Warmup Wi-Fi underfloor-heating thermostats as HomeKit Thermostat accessories. Supports the entire smart-thermostat range that pairs with my.warmup.com / the MyHeating app: 4iE (legacy), 6iE, 7iE Smart Matter, Element Wi-Fi, Terra Wi-Fi, and rebadged OEM units (Laticrete, Rointe, Porcelanosa, Equus, Savant). The "4ie" in the package name is historical — when the plugin was authored in 2019, the 4iE was Warmup's only smart thermostat.
 **Repo:** `https://github.com/nookied/homebridge-warmup4ie` — **maintained fork**, published to npm under a distinct name
 **Original (abandoned reference):** [NorthernMan54/homebridge-warmup4ie](https://github.com/NorthernMan54/homebridge-warmup4ie) — broke at 0.1.0 in Dec 2024 and never fixed; do not pull from or push to it
 **License:** Apache-2.0 (preserved from original; LICENSE file added in 2.0.0)

@@ -7,6 +7,7 @@ eslint.config.mjs
 
 # Project meta — not needed by npm install
 QA_TESTS.md
+ROADMAP.md
 CLAUDE.md
 AGENTS.md
 

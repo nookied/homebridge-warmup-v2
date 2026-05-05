@@ -1,6 +1,7 @@
 # Roadmap — homebridge-warmup4ie-v2
 
-Living development plan, derived from a structured audit (May 2026) of:
+Living development plan for a Homebridge plugin that talks to **Warmup Wi-Fi underfloor-heating thermostats** — the entire range that pairs with my.warmup.com / the MyHeating app (4iE legacy, 6iE, 7iE Smart Matter, Element Wi-Fi, Terra Wi-Fi, plus rebadged OEMs). Despite the package's legacy `warmup4ie` name, all these models share one cloud API and the plugin treats them uniformly. Derived from a structured audit (May 2026) of:
+
 - **Homebridge / HAP-NodeJS docs** — plugin patterns, Verified requirements, modern characteristic APIs
 - **Warmup cloud API** — full reverse-engineering trail across `alex-0103/warmup4IE` (Python REST), `ha-warmup/warmup` (richer GraphQL), `openhab/openhab-addons` warmup binding (Java GraphQL), and `jondarrer/warmup-api` (full introspected GraphQL schema, 3113 lines)
 
@@ -61,8 +62,8 @@ Versioning policy: post-2.0, follow [SemVer](https://semver.org/). Breaking conf
 | Item | Description | Effort | Doc |
 |---|---|---|---|
 | **`config.schema.json`** | Single static JSON file. Fields: `username` (text), `password` (`format:"password"` so HB UI masks), `refresh` (integer, default 60, min 30 max 600), `duration` (integer, default 60, min 5 max 1440). `pluginAlias: "warmup4ie"`, `pluginType: "platform"`, `singular: true`. | 30 min | [HB schema spec](https://developers.homebridge.io/#/config-schema) |
-| **`displayName` in `package.json`** | E.g. `"Homebridge Warmup 4iE"`. Renders in HB UI plugin browser instead of the bare npm name. | 5 min | [npm `displayName`](https://github.com/homebridge/plugins) |
-| **Manufacturer & Model accessory info** | `Manufacturer: "Warmup"` (was `warmup4ie`). Set `Model` from `room.thermostat4ies[0].deviceModel` if available, else `"4iE"`. | 10 min | — |
+| **`displayName` in `package.json`** | `"Homebridge Warmup Wi-Fi Thermostats"`. Renders in HB UI plugin browser instead of the bare npm name. Avoids the model-specific "4iE" wording so users with 6iE/7iE/Element/Terra recognise the plugin. | 5 min | [npm `displayName`](https://github.com/homebridge/plugins) |
+| **Manufacturer & Model accessory info** | `Manufacturer: "Warmup"` (was `warmup4ie`); `Model: "Wi-Fi Thermostat"` (was `4iE` — incorrect for users with 6iE/7iE/Element/Terra). Real model name comes from `appFw`/`deviceModel` in M3 once GraphQL lands. | 10 min | — |
 | **Stable per-instance `roomId`-based serial** | Already done in v2.0.0 — keep. | — | — |
 | **Logging hygiene** | `this.log.info` for one-time events, `this.log.debug` for set-action chatter and per-poll updates. Replace `console.error` in `_fetch` with `log.error` via DI. Drop polling chatter from default verbosity. | 30 min | — |
 | **`.onSet(async)` migration** | Replace legacy `.on('set', cb)` with `.onSet(async value => {...})`. Throw `HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE)` instead of `cb(new Error(...))`. | 1 h | [HAPStatus enum](https://github.com/homebridge/HAP-NodeJS/blob/master/src/lib/HAPServer.ts) |

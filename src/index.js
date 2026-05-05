@@ -1,4 +1,8 @@
-// Homebridge platform for Warmup 4iE underfloor-heating thermostats.
+// Homebridge platform for Warmup Wi-Fi underfloor-heating thermostats.
+// Supports the entire smart-thermostat range that pairs with my.warmup.com /
+// the MyHeating app: 4iE, 6iE, 7iE Smart Matter, Element Wi-Fi, Terra Wi-Fi,
+// plus rebadged OEM units (Laticrete, Rointe, Porcelanosa, Equus, Savant).
+//
 // Each Warmup "room" is exposed as a HomeKit Thermostat (primary) plus a
 // paired TemperatureSensor for the air-temp probe. Static accessory platform
 // (legacy `accessories(callback)` flow) — Homebridge v2 still supports this.
@@ -172,7 +176,10 @@ Warmup4ieAccessory.prototype = {
   getServices: function () {
     const informationService = new Service.AccessoryInformation()
       .setCharacteristic(Characteristic.Manufacturer, 'Warmup')
-      .setCharacteristic(Characteristic.Model, '4iE')
+      // The REST API doesn't expose per-thermostat model. v3.0 (GraphQL)
+      // populates this from `appFw`/`deviceModel`. For now, use a generic
+      // label that's accurate for any model in the supported range.
+      .setCharacteristic(Characteristic.Model, 'Wi-Fi Thermostat')
       // Stable serial: roomId is unique per Warmup account and survives host moves.
       .setCharacteristic(Characteristic.SerialNumber, `warmup4ie-${this.roomId}`)
       .setCharacteristic(Characteristic.FirmwareRevision, PLUGIN_VERSION);

@@ -3,11 +3,29 @@
 [![npm](https://img.shields.io/npm/v/homebridge-warmup4ie-v2.svg)](https://www.npmjs.com/package/homebridge-warmup4ie-v2)
 [![Apache 2.0](https://img.shields.io/npm/l/homebridge-warmup4ie-v2.svg)](LICENSE)
 
-Homebridge plugin for **[Warmup 4iE](https://www.warmup.com/thermostats/smart/4ie)** underfloor-heating thermostats.
+Homebridge plugin for **[Warmup Wi-Fi underfloor-heating thermostats](https://www.warmup.com/thermostats)**.
+
+Despite the legacy name (the original plugin was authored in 2019 when the 4iE was Warmup's only smart thermostat), this works with every Warmup Wi-Fi thermostat that connects to the `my.warmup.com` cloud / MyHeating app. See [Supported thermostats](#supported-thermostats) below.
 
 This is a **maintained fork** of [`homebridge-warmup4ie`](https://github.com/NorthernMan54/homebridge-warmup4ie) (NorthernMan54), which became broken at version 0.1.0–0.1.1 in late 2024 and has not been updated since. The original silently rejected the `Off` HomeKit command (location turn-off API was sending the wrong body) and overrode temperatures in UTC instead of local time. This fork restores the working behaviour, replaces the deprecated `request` HTTP library with native `fetch`, and adds a real test suite.
 
 If you have `homebridge-warmup4ie` installed, **uninstall it first** before installing this package — see [Migration](#migration) below.
+
+## Supported thermostats
+
+Anything that pairs with the **MyHeating app** (or signs into [my.warmup.com](https://my.warmup.com)) goes through the same cloud API and is supported:
+
+| Model | Status | Notes |
+|---|---|---|
+| **[4iE Smart Wi-Fi](https://www.warmup.com/warmupedia/products/4ie-smart-wifi-thermostat)** | Discontinued (replaced by 6iE) | First Warmup Wi-Fi thermostat (~2014). Dual floor probes (`floor1Temp` + `floor2Temp`). |
+| **[6iE Smart Wi-Fi](https://www.warmup.com/6ie-smart-wifi)** | Active | Colour touch screen. Single floor probe. SSID ≤32 chars, password ≤15 chars (Warmup limitation). |
+| **[7iE Smart Matter Wi-Fi](https://www.warmup.com/7ie-smart-matter-wifi-thermostat)** | Active (flagship) | Latest model; supports Matter natively (you may not need this plugin if you pair via Matter). |
+| **[Element Wi-Fi](https://www.warmup.co.uk/thermostats/smart/element-wifi-thermostat)** | Active | Touch-button entry-level smart thermostat. |
+| **[Terra Wi-Fi](https://www.warmup.com/thermostats/terra-wifi-thermostat)** | Active | Eco-line smart thermostat. |
+| Rebadged OEM units | Active | Laticrete, Rointe, Porcelanosa, Equus, Savant — same firmware, same API. |
+| **Tempo** (programmable, non-Wi-Fi) | — | **Not supported** — no cloud connectivity. |
+
+The Warmup cloud API uses a single thermostat shape internally (the GraphQL schema's type is named `Thermostat4iE` for legacy reasons). Model-specific features like the 4iE's second floor probe simply return null on single-probe units; the plugin treats them uniformly.
 
 ## Why this fork exists
 
@@ -24,7 +42,7 @@ Both regressions were verified byte-for-byte against the [Python reference imple
 sudo npm install -g homebridge-warmup4ie-v2
 ```
 
-Or via the Homebridge UI: search for **homebridge-warmup4ie-v2** in the plugin browser.
+Or via the Homebridge UI: search for **homebridge-warmup4ie-v2** in the plugin browser. Works for any model in the [Supported thermostats](#supported-thermostats) table.
 
 To install straight from git instead of npm (e.g. to pin a specific commit):
 
@@ -113,6 +131,12 @@ The Warmup API rejected the call (e.g. invalid credentials, expired token, serve
 
 ### Multi-location accounts
 This plugin uses the **first** location only (`locations[0].id`). If you have e.g. a primary residence + a holiday home on the same Warmup account, only the first one is exposed. Run a second Homebridge instance/child bridge with a different account to expose the other location.
+
+### "Wi-Fi Thermostat" shows as the model in Home app
+We currently set `Model = "Wi-Fi Thermostat"` because the Warmup REST API doesn't expose the per-thermostat model name. The GraphQL API does (`appFw`, `wifiFw`, `deviceModel`), and v3.0 will populate this with the real model. If you want the actual model badge today, you can edit the accessory in the Home app.
+
+### `floor2Temp` is always 0 / null on my 6iE / Element / Terra
+That's expected — only the 4iE has dual floor probes. Single-probe models return null/zero for the unused channel.
 
 ### Live API debugging
 ```bash
