@@ -55,5 +55,9 @@ When the thermostat is in temperature override mode, the Mode setting is set to 
 ## Optional settings
 
 * `refresh` - Data polling interval in seconds, defaults to 60 seconds
-* `storage` - Storage of chart graphing data for history graphing, either fs or googleDrive, defaults to fs
 * `duration` - Duration of temperature override, defaults to 60 minutes
+
+## Notes
+
+* `Off` is **location-wide**. The Warmup cloud API has no documented per-room hard-off, so turning any one thermostat to *Off* in HomeKit turns the whole location off (which is what the Warmup mobile app does too).
+* Temperature changes always create an *override* of length `duration` minutes, after which the schedule resumes.
