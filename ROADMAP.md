@@ -96,11 +96,15 @@ After this milestone: items #5, #8, #11 of the Verified checklist are closed; #1
 
 ---
 
-### Milestone 3 — v3.0.0 — GraphQL transport (the big unlock)
+### ✅ Milestone 3 — v3.0.0 — GraphQL transport (the big unlock) — SHIPPED
 
 **Goal:** Migrate from REST to GraphQL. Becomes the foundation for everything in milestones 4–6.
 
-This is a major version bump because the wire format changes entirely. Externally invisible to users (HomeKit shape is unchanged), but the internal contract is different enough that it warrants a major.
+This is a major version bump because the wire format changes entirely. **Per-room Off is now real** (was location-wide in v2 and earlier).
+
+**Shipped 2026-05-05.** All items below complete. See `CHANGELOG.md` for detail.
+
+**Implementation note from live testing:** the schema's `user.location(id: $lid)` field returns HTTP 409 in practice. The actual Warmup mobile app uses `user.owned[].rooms` instead — this is the path we ended up using. One GraphQL round trip returns all locations + their rooms; we pick `owned[0]`.
 
 #### Why
 

@@ -6,6 +6,8 @@ const fs = require('fs');
 const path = require('path');
 
 const FIXTURES = path.join(__dirname, 'fixtures');
+const REST_URL = 'https://api.warmup.com/apps/app/v1';
+const GRAPHQL_URL = 'https://apil.warmup.com/graphql';
 
 function loadFixture(name) {
   return JSON.parse(fs.readFileSync(path.join(FIXTURES, name), 'utf8'));
@@ -26,21 +28,55 @@ function stubFetch(impl) {
   return () => { globalThis.fetch = original; };
 }
 
-// Build a stubbed `Warmup4IE` instance whose `_fetch` is pre-replaced to
-// capture bodies instead of touching the network. Used for builder-shape
-// assertions where we only care about the wire format, not transport.
-function stubClient(Warmup4IE, captureInto, response = { status: { result: 'success' }, response: {} }) {
-  const fakeClient = Object.create(Warmup4IE.prototype);
-  fakeClient._username = 'user@example.com';
-  fakeClient._duration = 60;
-  fakeClient._token = 'mock-token';
-  fakeClient._locId = 12345;
-  fakeClient.room = [];
-  fakeClient._fetch = async (body) => {
-    captureInto.push(body);
-    return response;
+// Build a stubbed `Warmup4IE` instance whose `_graphql` is pre-replaced to
+// capture `(query, variables)` instead of touching the network. Used for
+// builder-shape assertions where we only care about the wire format.
+//
+// Returns `(client, captured)` — capture array contains
+// `[{ query, variables }, ...]` in call order.
+function stubGraphQLClient(Warmup4IE, { graphqlResponse = {}, captureInto = [] } = {}) {
+  const c = Object.create(Warmup4IE.prototype);
+  c._username = 'user@example.com';
+  c._password = 'secret';
+  c._duration = 60;
+  c._token = 'mock-token';
+  c._locId = 12345;
+  c.room = [];
+  c._graphql = async (query, variables) => {
+    captureInto.push({ query, variables });
+    return graphqlResponse;
   };
-  return fakeClient;
+  c._login = async () => { c._token = 'refreshed-token'; };
+  return { client: c, captured: captureInto };
 }
 
-module.exports = { loadFixture, makeResponse, stubFetch, stubClient };
+// Sequenced URL-aware fetch stubber. Pass an array of responses keyed by
+// URL pattern. Useful for full bootstrap tests that exercise REST `_login`
+// then a series of GraphQL calls.
+//
+//   sequencer([
+//     { url: REST_URL, body: { ... }},
+//     { url: GRAPHQL_URL, body: { data: { ... } } }
+//   ])
+function sequencedFetch(responses) {
+  let i = 0;
+  return stubFetch(async (url) => {
+    const next = responses[i++];
+    if (!next) throw new Error(`sequencedFetch: ran out of responses at index ${i - 1}`);
+    if (next.url && next.url !== url) {
+      throw new Error(`sequencedFetch: expected URL ${next.url}, got ${url}`);
+    }
+    if (next.response) return next.response;
+    return makeResponse(next.body, next.opts);
+  });
+}
+
+module.exports = {
+  loadFixture,
+  makeResponse,
+  stubFetch,
+  stubGraphQLClient,
+  sequencedFetch,
+  REST_URL,
+  GRAPHQL_URL
+};

@@ -96,13 +96,13 @@ HomeKit thermostats expose four modes; this plugin only uses three:
 
 | HomeKit | Action on Warmup |
 |---|---|
-| **Off** | Sends `setModes locMode=off` — turns off the **whole location** (see below). Same behaviour as the Warmup mobile app's "Off" button. |
+| **Off** | `deviceOff(lid, rid)` GraphQL mutation — turns off **only that room**, matching the Warmup mobile app's per-room Off button. |
 | **Heat** | Resumes the room's program. If the room is already in `fixed` or `override` state, no-op (preserves the override). |
 | **Auto** | Resumes the room's program (same as Heat). |
 | **Cool** | Not used — Warmup is a heating-only system. |
 
-### Off is location-wide, not per-room
-The Warmup cloud API has no per-room hard-off operation — confirmed against the Python reference impl and the mobile app's wire traffic. If you have multiple rooms on one account, tapping "Off" on **any** room turns the whole location off. This is the API contract, not a plugin limitation. If you want a per-room "off" effect, set `Heat` mode and drop the temperature to a frost setpoint (~5°C); the room stops heating until you raise it again.
+### Off is per-room (since v3.0)
+Tapping Off on one HomeKit thermostat affects only that room. v2 (and the upstream original) used a REST endpoint that turned off the entire location regardless of which room you tapped — v3 switched to the GraphQL transport which exposes a real per-room `deviceOff` operation. If you want the old whole-house off behaviour, build a HomeKit Scene that sets every thermostat to Off at once.
 
 ## Migration
 

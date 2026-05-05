@@ -12,7 +12,7 @@ This file is the canonical persistent memory for this project. Any assistant/age
 **Repo:** `https://github.com/nookied/homebridge-warmup4ie` — **maintained fork**, published to npm under a distinct name
 **Original (abandoned reference):** [NorthernMan54/homebridge-warmup4ie](https://github.com/NorthernMan54/homebridge-warmup4ie) — broke at 0.1.0 in Dec 2024 and never fixed; do not pull from or push to it
 **License:** Apache-2.0 (preserved from original; LICENSE file added in 2.0.0)
-**Current version:** 2.1.0 (Verified-plugin prep + UX polish; see ROADMAP.md for the development plan)
+**Current version:** 3.0.0 (GraphQL transport + per-room Off; see ROADMAP.md for the development plan)
 **Engines:** Homebridge `^1.6.0 || ^2.0.0-beta.0`, Node `^18.20.4 || ^20.15.1 || ^22.0.0`
 
 ### Fork rules
@@ -22,7 +22,9 @@ This file is the canonical persistent memory for this project. Any assistant/age
 - The `upstream` git remote is **intentionally not configured**. Do not re-add it. Do not open PRs against `NorthernMan54/homebridge-warmup4ie`.
 - CI runs lint + tests + smoke on Node 18/20/22 for every push (`.github/workflows/ci.yml`). Releases are tag-driven: `npm version patch|minor|major && git push --follow-tags` triggers `release.yml`, which publishes to npm with provenance and creates a GitHub Release.
 
-The plugin authenticates against the my.warmup.com cloud (`https://api.warmup.com/apps/app/v1`), enumerates rooms in the first location on the account, and creates one HomeKit Thermostat (+ a paired air-temperature `TemperatureSensor`) per room. Transport is native Node ≥18 `fetch` (no third-party HTTP client).
+The plugin authenticates against the my.warmup.com cloud via REST `userLogin` (`https://api.warmup.com/apps/app/v1`), then uses the Warmup GraphQL endpoint (`https://apil.warmup.com/graphql`) for all subsequent operations — room enumeration, status polling, and per-room control. Each Warmup "room" becomes one HomeKit Thermostat (+ a paired air-temperature `TemperatureSensor`). Transport is native Node ≥18 `fetch` (no third-party HTTP client).
+
+**Key v3 behaviour:** the `Off` HomeKit action targets a *single* room via the GraphQL `deviceOff(lid, rid)` mutation. v2 (and the upstream original) used a location-wide REST `setModes locMode:"off"` call that turned off all rooms — that's no longer what we do.
 
 ## Architecture
 

@@ -1,9 +1,21 @@
 'use strict';
 
+// Warmup cloud API client.
+//
+// Authentication: REST `userLogin` at api.warmup.com → access token.
+// All other operations: GraphQL at apil.warmup.com (the canonical Warmup API).
+//
+// The REST surface at /apps/app/v1 is a legacy compatibility layer. The
+// GraphQL surface is what the Warmup mobile app actually uses for the
+// modern feature set — per-room off, override-with-minutes, energy data,
+// holiday mode, etc. See ROADMAP.md M3 for the full migration story.
+
 const debug = require('debug')('warmup4ie:lib');
 
-const TOKEN_URL = 'https://api.warmup.com/apps/app/v1';
+const REST_URL = 'https://api.warmup.com/apps/app/v1';
+const GRAPHQL_URL = 'https://apil.warmup.com/graphql';
 const APP_TOKEN = 'M=;He<Xtg"$}4N%5k{$:PD+WA"]D<;#PriteY|VTuA>_iyhs+vA"4lic{6-LqNM:';
+
 const REQUEST_HEADERS = {
   'user-agent': 'WARMUP_APP',
   'accept-encoding': 'br, gzip, deflate',
@@ -15,10 +27,58 @@ const REQUEST_HEADERS = {
 };
 const REQUEST_TIMEOUT_MS = 10000;
 
-// Error codes the Warmup API returns for token-related failures, observed
-// in OSS ports (alex-0103, ha-warmup, openHAB) and confirmed against the
-// public schema. We use these to trigger one re-auth + retry per request.
-const TOKEN_ERROR_CODES = new Set([100, 102, 103]);
+// Mutation arg types verbatim from jondarrer/warmup-api/warmup-schema.graphql.
+// `lid: Int!` (required), `rid: Int` (nullable — omit for location-wide;
+// pass for per-room).
+//
+// For reads we use `user.owned[].rooms` — this is the path the real Warmup
+// mobile app uses (per http-requests.http in the same repo). The
+// `user.location(id: $lid)` schema field exists but the gateway rejects
+// it with HTTP 409 in practice; `owned[]` is the supported shape.
+const GQL_OWNED_AND_ROOMS = `
+  query OwnedAndRooms {
+    user {
+      owned {
+        id
+        name
+        rooms {
+          id
+          roomName
+          runMode
+          roomMode
+          targetTemp
+          currentTemp
+          overrideDur
+          overrideTemp
+          fixedTemp
+          energy
+          cost
+          thermostat4ies {
+            deviceSN
+            airTemp
+            floor1Temp
+            floor2Temp
+            minTemp
+            maxTemp
+            lastPoll
+            isFaultAir
+            isFaultFloor1
+            isFaultFloor2
+          }
+        }
+      }
+    }
+  }
+`.trim();
+
+const GQL_DEVICE_PROGRAM = 'mutation DeviceProgram($lid: Int!, $rid: Int) { deviceProgram(lid: $lid, rid: $rid) }';
+const GQL_DEVICE_OFF = 'mutation DeviceOff($lid: Int!, $rid: Int) { deviceOff(lid: $lid, rid: $rid) }';
+const GQL_DEVICE_OVERRIDE = 'mutation DeviceOverride($lid: Int!, $rid: Int, $temperature: Int!, $minutes: Int!) { deviceOverride(lid: $lid, rid: $rid, temperature: $temperature, minutes: $minutes) }';
+
+// Token-related errors that should trigger one re-auth + retry. Includes
+// HTTP 401, REST status.code 100/102/103, and any GraphQL error message
+// containing token/auth keywords.
+const TOKEN_ERROR_PATTERN = /Warmup HTTP 401|"code":\s*(?:100|102|103)|Warmup GraphQL: .*\b(token|auth|unauthorized|forbidden)/i;
 
 class Warmup4IE {
   constructor(options, callback) {
@@ -38,45 +98,20 @@ class Warmup4IE {
   }
 
   async _bootstrap() {
-    await this._generateAccessToken();
-    await this._getLocations();
+    await this._login();
     return this._fetchRooms();
   }
 
   // ---------------------------------------------------------------------------
-  // Transport
+  // Transport — generic HTTP, then per-protocol (REST / GraphQL) wrappers.
   // ---------------------------------------------------------------------------
 
-  // Wrap `_fetch` with one re-auth + retry on token-related failures.
-  // The body must be a *factory* (function returning a body) so that the
-  // retry sees the freshly minted token, not the stale one captured at the
-  // first call.
-  async _authenticatedFetch(buildBody) {
-    try {
-      return await this._fetch(buildBody());
-    } catch (err) {
-      if (!this._isTokenError(err)) throw err;
-      debug('Token rejected by Warmup, re-authenticating');
-      this._token = null;
-      await this._generateAccessToken();
-      return this._fetch(buildBody());
-    }
-  }
-
-  _isTokenError(err) {
-    const msg = err.message || '';
-    if (msg.startsWith('Warmup HTTP 401')) return true;
-    const codeMatch = msg.match(/Warmup API: .*"code":\s*(\d+)/);
-    if (codeMatch && TOKEN_ERROR_CODES.has(parseInt(codeMatch[1], 10))) return true;
-    return false;
-  }
-
-  async _fetch(body) {
+  async _fetch(url, body, extraHeaders = {}) {
     let response;
     try {
-      response = await fetch(TOKEN_URL, {
+      response = await fetch(url, {
         method: 'POST',
-        headers: REQUEST_HEADERS,
+        headers: { ...REQUEST_HEADERS, ...extraHeaders },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       });
@@ -89,28 +124,58 @@ class Warmup4IE {
     }
 
     const text = await response.text();
-    let json;
     try {
-      json = JSON.parse(text);
+      return JSON.parse(text);
     } catch (ex) {
       throw new Error(`Warmup JSON parse error: ${ex.message}`);
     }
+  }
 
-    // Warmup returns 200 OK with `{status:{result:"error",...}}` on rejection.
+  // REST POST. Used only for `userLogin`.
+  async _rest(body) {
+    const json = await this._fetch(REST_URL, body);
     if (json.status && json.status.result !== 'success') {
       const detail = json.message || json.status.message || JSON.stringify(json.status);
       throw new Error(`Warmup API: ${detail}`);
     }
-
     return json;
+  }
+
+  // GraphQL POST. The token rides as `warmup-authorization` (NOT in the body).
+  async _graphql(query, variables = {}) {
+    const json = await this._fetch(GRAPHQL_URL, { query, variables }, {
+      'warmup-authorization': this._token || ''
+    });
+    if (json.errors && json.errors.length) {
+      const detail = json.errors.map((e) => e.message).join('; ');
+      throw new Error(`Warmup GraphQL: ${detail}`);
+    }
+    return json.data;
+  }
+
+  // GraphQL with one re-auth + retry on token-related failures.
+  async _authenticatedGraphQL(query, variables = {}) {
+    try {
+      return await this._graphql(query, variables);
+    } catch (err) {
+      if (!this._isTokenError(err)) throw err;
+      debug('Token rejected by Warmup, re-authenticating');
+      this._token = null;
+      await this._login();
+      return this._graphql(query, variables);
+    }
+  }
+
+  _isTokenError(err) {
+    return TOKEN_ERROR_PATTERN.test((err && err.message) || '');
   }
 
   // ---------------------------------------------------------------------------
   // Auth + bootstrap
   // ---------------------------------------------------------------------------
 
-  async _generateAccessToken() {
-    const json = await this._fetch({
+  async _login() {
+    const json = await this._rest({
       request: {
         email: this._username,
         password: this._password,
@@ -121,35 +186,21 @@ class Warmup4IE {
     this._token = json.response.token;
   }
 
-  // By design: multi-location accounts use the first location only. The Warmup
-  // app does the same when no location is explicitly selected. If you need a
-  // second location, run a second Homebridge child bridge with another account.
-  async _getLocations() {
-    if (!this._token) throw new Error('Missing access token.');
-
-    const json = await this._fetch({
-      account: { email: this._username, token: this._token },
-      request: { method: 'getLocations' }
-    });
-
-    const first = json.response.locations && json.response.locations[0];
-    if (!first) throw new Error('No locations on Warmup account.');
-    this._locId = first.id;
-  }
-
   // ---------------------------------------------------------------------------
-  // Public read API
+  // Read API
   // ---------------------------------------------------------------------------
 
+  // Single GraphQL round trip that returns owned locations + their rooms.
+  // We pick `owned[0]` (by design — multi-location accounts use the first
+  // location only) and store its id as `_locId` for use by write mutations.
   async _fetchRooms() {
-    if (!this._locId) throw new Error('Missing locId.');
+    const data = await this._authenticatedGraphQL(GQL_OWNED_AND_ROOMS);
+    const owned = (data && data.user && data.user.owned) || [];
+    const first = owned[0];
+    if (!first) throw new Error('No locations on Warmup account.');
 
-    const json = await this._authenticatedFetch(() => ({
-      account: { email: this._username, token: this._token },
-      request: { method: 'getRooms', locId: this._locId }
-    }));
-
-    const rooms = json.response.rooms || [];
+    this._locId = first.id;
+    const rooms = (first.rooms || []).map((r) => normalizeRoom(r));
     rooms.forEach((room) => {
       this.room[room.roomId] = room;
     });
@@ -161,69 +212,71 @@ class Warmup4IE {
   }
 
   // ---------------------------------------------------------------------------
-  // Public write API
+  // Write API — all GraphQL, all per-room (the v3 unlock).
   // ---------------------------------------------------------------------------
-
-  async setTargetTemperature(roomId, value) {
-    // `until` is local-time HH:MM. The Warmup app sends local time; UTC here
-    // makes the override expire at the wrong wall-clock time (off by the
-    // timezone offset).
-    const end = new Date(Date.now() + this._duration * 60000);
-    const until = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
-
-    this.room[roomId] = null;
-    return this._authenticatedFetch(() => ({
-      account: { email: this._username, token: this._token },
-      request: {
-        method: 'setOverride',
-        rooms: [roomId],
-        type: 3,
-        temp: parseInt(value * 10, 10),
-        until
-      }
-    }));
-  }
 
   async setRoomAuto(roomId) {
     this.room[roomId] = null;
-    return this._authenticatedFetch(() => ({
-      account: { email: this._username, token: this._token },
-      request: {
-        method: 'setProgramme',
-        roomId,
-        roomMode: 'prog'
-      }
-    }));
+    return this._authenticatedGraphQL(GQL_DEVICE_PROGRAM, { lid: this._locId, rid: roomId });
   }
 
-  // Hard-off — the Warmup mobile app does this exact same call when you turn
-  // a thermostat off, which is location-wide (`locMode: off`). There is no
-  // per-room hard-off in the Warmup REST API; this is the documented
-  // behaviour. Filler keys (`holEnd`, `holStart`, `holTemp`, `fixedTemp`,
-  // `geoMode`) are *required* — without them the API returns 200 OK with a
-  // JSON error body and the thermostats never receive the command. Match the
-  // Python reference body byte-for-byte (alex-0103/warmup4IE).
-  //
-  // Note: per-room off becomes possible via the GraphQL `deviceOff(lid, rid)`
-  // mutation in v3.0.0. See ROADMAP.md milestone 3.
+  // Per-room hard off (replaces the v2 location-wide `setModes locMode:"off"`
+  // workaround). Tapping Off on one HomeKit thermostat now affects only that
+  // room, matching the Warmup mobile app's per-room Off button.
   async setRoomOff(roomId) {
     this.room[roomId] = null;
-    return this._authenticatedFetch(() => ({
-      account: { email: this._username, token: this._token },
-      request: {
-        method: 'setModes',
-        values: {
-          holEnd: '-',
-          fixedTemp: '',
-          holStart: '-',
-          geoMode: '0',
-          holTemp: '-',
-          locId: this._locId,
-          locMode: 'off'
-        }
-      }
-    }));
+    return this._authenticatedGraphQL(GQL_DEVICE_OFF, { lid: this._locId, rid: roomId });
   }
+
+  async setTargetTemperature(roomId, value) {
+    this.room[roomId] = null;
+    return this._authenticatedGraphQL(GQL_DEVICE_OVERRIDE, {
+      lid: this._locId,
+      rid: roomId,
+      temperature: parseInt(value * 10, 10),
+      minutes: this._duration
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal — normalize a GraphQL Room payload into the shape the platform
+// expects. The schema spreads fields across `Room` and the embedded
+// `thermostat4ies[0]` (airTemp, minTemp, maxTemp, lastPoll, fault flags
+// all live there). We flatten so index.js can consume rooms uniformly
+// regardless of transport.
+// ---------------------------------------------------------------------------
+function normalizeRoom(r) {
+  const t = (r.thermostat4ies && r.thermostat4ies[0]) || {};
+  const params = t.parameters || {};
+  return {
+    // GraphQL returns Room.id; the platform (legacy from REST) expects roomId.
+    roomId: r.id,
+    roomName: r.roomName,
+    runMode: r.runMode,
+    roomMode: r.roomMode,
+    targetTemp: r.targetTemp,
+    currentTemp: r.currentTemp,
+    // airTemp lives on the Thermostat4iE in GraphQL (as a String). Falling
+    // back to Room.airTemp if the schema ever moves it.
+    airTemp: t.airTemp || r.airTemp,
+    minTemp: t.minTemp,
+    maxTemp: t.maxTemp,
+    overrideDur: r.overrideDur,
+    overrideTemp: r.overrideTemp,
+    fixedTemp: r.fixedTemp,
+    energy: r.energy,
+    cost: r.cost,
+    // Fields surfaced for future M5/M6 use (Eve energy graphs, StatusFault).
+    floor1Temp: t.floor1Temp,
+    floor2Temp: t.floor2Temp,
+    isFaultAir: t.isFaultAir,
+    isFaultFloor1: t.isFaultFloor1,
+    isFaultFloor2: t.isFaultFloor2,
+    outputStatus: params.outputStatus,
+    deviceSN: t.deviceSN,
+    lastPoll: t.lastPoll
+  };
 }
 
 module.exports = { Warmup4IE };

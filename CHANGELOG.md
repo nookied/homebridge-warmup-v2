@@ -7,6 +7,101 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.0.0] — 2026-05-05
+
+Roadmap [Milestone 3](ROADMAP.md) — GraphQL transport rewrite. **The big v3
+unlock: per-room "Off"**. Wire format changes entirely; HomeKit accessory
+shape unchanged.
+
+### Headline change: Off is now per-room
+
+Previous versions (and the upstream original) used `setModes locMode:"off"`,
+which turns off the **entire location** — tapping Off on any one HomeKit
+thermostat killed heating across the whole account. This was an API
+limitation (no per-room hard-off in REST), not a plugin choice.
+
+GraphQL exposes `deviceOff(lid, rid)` which is genuinely per-room. v3.0
+uses it. **Tapping Off on one HomeKit thermostat now affects only that
+room** — matching the Warmup mobile app's per-room Off button.
+
+### Why this is a major version
+
+- **Behaviour change visible to users:** "Off" semantics change. Users with
+  multiple rooms who relied on the side-effect (one Off → all off) will
+  see different behaviour. The new behaviour is correct; the old was a
+  workaround.
+- **Wire format change:** REST `https://api.warmup.com/apps/app/v1` → GraphQL
+  `https://apil.warmup.com/graphql` for everything except `userLogin`.
+  Internal change, but big enough to mark.
+
+### Migration
+
+`config.json` is unchanged. `npm install -g homebridge-warmup4ie-v2@3` on
+the host, restart, done.
+
+If you have a single room you'll see no functional change. If you have
+multiple rooms, **the Off button now stops only that room** — if you want
+the old whole-house off behaviour, build a HomeKit Scene that turns Off
+on every thermostat at once.
+
+### Added (transport: GraphQL)
+
+- **`user.owned[]` query** for room enumeration. Single round trip returns
+  all locations + rooms (the path the real Warmup mobile app uses).
+- **`deviceOff(lid, rid)`** mutation — per-room hard off. The v3 unlock.
+- **`deviceProgram(lid, rid)`** mutation — resume schedule per room.
+- **`deviceOverride(lid, rid, temperature, minutes)`** mutation — temperature
+  override with explicit duration in minutes. No more HH:MM `until` parsing,
+  no more local-vs-UTC pitfalls, no more day-wraparound edge cases.
+- **`warmup-authorization`** header for authenticated GraphQL requests
+  (token previously rode in the body).
+- **Per-room metadata surfaced** for future M5/M6 use:
+  `floor1Temp`, `floor2Temp`, `isFaultAir`, `isFaultFloor1`, `isFaultFloor2`,
+  `deviceSN`, `lastPoll`. Not yet exposed as HomeKit characteristics —
+  reserved for the energy/sensor-fault rollouts.
+
+### Changed
+
+- **REST is gone** for everything except `userLogin`. The legacy
+  `setModes`/`setProgramme`/`setOverride`/`getRooms` calls are removed.
+  `_rest()` and `_graphql()` are now the two protocol-specific transports
+  on top of a generic `_fetch(url, body, headers)`.
+- **`setRoomOff(roomId)`** now genuinely targets one room, not the location.
+- **`setTargetTemperature(roomId, value)`** sends `temperature` and `minutes`
+  variables directly — `until` HH:MM string formatting is dropped entirely
+  (it was only ever needed to satisfy the REST `setOverride` shape).
+- **Token-error detection** updated to also recognise GraphQL "Unauthorized" /
+  "token" / "auth" / "forbidden" messages, in addition to HTTP 401 and the
+  REST `code: 100/102/103` patterns from v2.1.
+
+### Removed
+
+- **REST methods:** `_loadLocations` (combined into `_fetchRooms`), all
+  v2 REST helpers replaced by GraphQL equivalents.
+- **`until` HH:MM time formatting** — the regression sentinel from v2 (UTC
+  vs local) is permanently obsolete; we send minutes now.
+- **Old fixtures** (`getLocations.success.json`, `getRooms.*.json`,
+  `setOperation.error.json`) — replaced by `graphql.owned.json`,
+  `graphql.error.json`, `graphql.mutation.success.json`.
+
+### Tests
+
+- 61 passing offline + 2 live (login + getStatus against real account).
+- New: GraphQL wire-format tests (assert mutation strings + variables),
+  `_rest`/`_graphql` transport tests with URL-aware sequenced fetch stub,
+  GraphQL error response handling, token refresh routes through both
+  REST `userLogin` and GraphQL retry.
+- Removed: `until-format.test.js` (UTC regression no longer applicable).
+
+### Source-of-truth references
+
+- GraphQL schema dump: [jondarrer/warmup-api/warmup-schema.graphql](https://github.com/jondarrer/warmup-api/blob/main/warmup-schema.graphql)
+- Real-world request shape: [jondarrer/warmup-api/http-requests.http](https://github.com/jondarrer/warmup-api/blob/main/http-requests.http)
+- HA integration cross-check: [ha-warmup/warmup](https://github.com/ha-warmup/warmup)
+- openHAB binding cross-check: [openhab/openhab-addons (warmup)](https://github.com/openhab/openhab-addons/tree/main/bundles/org.openhab.binding.warmup)
+
+---
+
 ## [2.1.0] — 2026-05-05
 
 Roadmap [Milestone 1](ROADMAP.md) — Verified-plugin prep and UX polish. No

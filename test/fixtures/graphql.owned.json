@@ -1,0 +1,94 @@
+{
+  "data": {
+    "user": {
+      "owned": [
+        {
+          "id": 12345,
+          "name": "Primary Residence",
+          "rooms": [
+            {
+              "id": 100001,
+              "roomName": "Living Room",
+              "runMode": "schedule",
+              "roomMode": "program",
+              "targetTemp": 210,
+              "currentTemp": 205,
+              "overrideDur": 0,
+              "overrideTemp": 0,
+              "fixedTemp": 200,
+              "energy": "1.23",
+              "cost": "0.21",
+              "thermostat4ies": [{
+                "deviceSN": "ABC123",
+                "airTemp": "215",
+                "floor1Temp": "220",
+                "floor2Temp": "0",
+                "minTemp": 50,
+                "maxTemp": 300,
+                "lastPoll": 2,
+                "isFaultAir": false,
+                "isFaultFloor1": false,
+                "isFaultFloor2": false
+              }]
+            },
+            {
+              "id": 100002,
+              "roomName": "Bedroom",
+              "runMode": "off",
+              "roomMode": "program",
+              "targetTemp": 200,
+              "currentTemp": 180,
+              "overrideDur": 0,
+              "overrideTemp": 0,
+              "fixedTemp": 200,
+              "energy": "0.45",
+              "cost": "0.07",
+              "thermostat4ies": [{
+                "deviceSN": "DEF456",
+                "airTemp": "195",
+                "floor1Temp": "180",
+                "floor2Temp": "0",
+                "minTemp": 50,
+                "maxTemp": 300,
+                "lastPoll": 1,
+                "isFaultAir": false,
+                "isFaultFloor1": false,
+                "isFaultFloor2": false
+              }]
+            },
+            {
+              "id": 100003,
+              "roomName": "Bathroom",
+              "runMode": "override",
+              "roomMode": "program",
+              "targetTemp": 230,
+              "currentTemp": 220,
+              "overrideDur": 30,
+              "overrideTemp": 230,
+              "fixedTemp": 200,
+              "energy": "2.10",
+              "cost": "0.35",
+              "thermostat4ies": [{
+                "deviceSN": "GHI789",
+                "airTemp": "225",
+                "floor1Temp": "220",
+                "floor2Temp": "0",
+                "minTemp": 50,
+                "maxTemp": 300,
+                "lastPoll": 0,
+                "isFaultAir": false,
+                "isFaultFloor1": false,
+                "isFaultFloor2": false
+              }]
+            }
+          ]
+        },
+        {
+          "id": 67890,
+          "name": "Holiday Home",
+          "rooms": []
+        }
+      ]
+    }
+  }
+}
