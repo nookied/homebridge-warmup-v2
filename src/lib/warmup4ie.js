@@ -54,8 +54,11 @@ const GQL_OWNED_AND_ROOMS = `
           fixedTemp
           energy
           cost
+          total
           thermostat4ies {
             deviceSN
+            appFw
+            wifiFw
             airTemp
             floor1Temp
             floor2Temp
@@ -272,6 +275,10 @@ function normalizeRoom(r) {
     fixedTemp: r.fixedTemp,
     energy: r.energy,
     cost: r.cost,
+    // Cumulative energy since first install — Eve.app reads this for the
+    // long-term TotalConsumption graph. `r.energy` is today-only and
+    // resets daily; `r.total` is monotonic.
+    total: r.total,
     // Per-thermostat metadata. Fault flags drive the platform's `StatusFault`
     // characteristic (M6 batch 1). The rest are queued for follow-up:
     //   - `floor1Temp`/`floor2Temp` — exposed as a separate sensor in M6+.
@@ -287,6 +294,10 @@ function normalizeRoom(r) {
     isFaultFloor1: t.isFaultFloor1,
     isFaultFloor2: t.isFaultFloor2,
     deviceSN: t.deviceSN,
+    // Device firmware versions. `appFw` populates AccessoryInformation's
+    // FirmwareRevision when it parses as a valid SemVer-ish string.
+    appFw: t.appFw,
+    wifiFw: t.wifiFw,
     lastPoll: t.lastPoll,
     // Real "is currently heating" relay signal — non-zero when the relay
     // is closed. Used by `deriveCurrentHeatingState` in preference to the

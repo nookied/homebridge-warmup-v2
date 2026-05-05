@@ -31,6 +31,11 @@ const MAX_DURATION_MINUTES = 1440;
 
 let Service, Characteristic, HapStatusError, HAPStatus, PlatformAccessoryCtor, uuid;
 let FakeGatoHistoryService;
+// Eve custom characteristic: "Total Consumption" (cumulative kWh). Lives on
+// the Thermostat service; Eve.app reads the well-known UUID for energy
+// graphs. Class is defined at module init once HAP types are bound.
+let EveTotalConsumption;
+const EVE_TOTAL_CONSUMPTION_UUID = 'E863F10C-079E-48FF-8F27-9C2605A29F52';
 
 module.exports = function (homebridge) {
   Service = homebridge.hap.Service;
@@ -39,6 +44,33 @@ module.exports = function (homebridge) {
   HAPStatus = homebridge.hap.HAPStatus;
   PlatformAccessoryCtor = homebridge.platformAccessory;
   uuid = homebridge.hap.uuid;
+
+  // Define the Eve.Energy.TotalConsumption custom characteristic. The UUID
+  // is well-known and shared across Eve-aware Homebridge plugins; Eve.app
+  // reads anything with this UUID as a "Total Consumption" series.
+  // Wrapped in try/catch so a non-class `Characteristic` (e.g. a stripped
+  // HAP shim in testing, or a hypothetical HAP-NodeJS API change) doesn't
+  // kill the plugin — energy graphs are nice-to-have, not critical.
+  try {
+    EveTotalConsumption = class extends Characteristic {
+      constructor() {
+        super('Total Consumption', EVE_TOTAL_CONSUMPTION_UUID);
+        this.setProps({
+          format: Characteristic.Formats.UINT32,
+          unit: 'kWh',
+          minValue: 0,
+          maxValue: 4294967295,
+          minStep: 1,
+          perms: [Characteristic.Perms.PAIRED_READ, Characteristic.Perms.NOTIFY]
+        });
+        this.value = this.getDefaultValue();
+      }
+    };
+    EveTotalConsumption.UUID = EVE_TOTAL_CONSUMPTION_UUID;
+  } catch (ex) {
+    EveTotalConsumption = null;
+    debug('Eve TotalConsumption characteristic unavailable: %s', ex.message);
+  }
 
   // fakegato-history is initialised once per Homebridge process — the
   // module export is `(homebridge) => FakeGatoHistoryService` (a class
@@ -212,15 +244,17 @@ function attachAccessoryServices(platform, accessory, room) {
   const info = accessory.getService(Service.AccessoryInformation) || accessory.addService(Service.AccessoryInformation);
   info
     .setCharacteristic(Characteristic.Manufacturer, 'Warmup')
-    // Generic label that's accurate for any model in the supported range.
-    // The Warmup GraphQL schema exposes per-device fields (`appFw`,
-    // `wifiFw`, `deviceSN`) on `Thermostat4iE` — surfacing them as the
-    // real Model/FirmwareRevision is queued for Roadmap M6.
+    // Generic label — Warmup's GraphQL schema doesn't carry a reliable
+    // marketing model name across all supported devices. The (i) info card
+    // shows this; users with a 4iE/6iE/7iE/Element/Terra all see the same
+    // generic label. Acceptable trade-off until we find a reliable source.
     .setCharacteristic(Characteristic.Model, 'Wi-Fi Thermostat')
     // Stable serial: roomId is unique per Warmup account, survives host moves
     // and matches the UUID derivation seed.
     .setCharacteristic(Characteristic.SerialNumber, `warmup4ie-${room.roomId}`)
-    .setCharacteristic(Characteristic.FirmwareRevision, PLUGIN_VERSION);
+    // Real device firmware from `appFw` when valid (HAP requires
+    // `N{1,9}(.N{1,9}){0,2}` SemVer-ish); falls back to plugin version.
+    .setCharacteristic(Characteristic.FirmwareRevision, deriveFirmwareRevision(room));
 
   // TemperatureSensor — the air-temp probe.
   // Set the service Name only on first add so we don't overwrite a user's
@@ -259,6 +293,14 @@ function attachAccessoryServices(platform, accessory, room) {
   // doesn't clamp the value mid-override.
   thermo.getCharacteristic(Characteristic.RemainingDuration)
     .setProps({ minValue: 0, maxValue: MAX_DURATION_MINUTES * 60 });
+
+  // Eve.Energy.TotalConsumption — cumulative kWh shown in Eve.app's
+  // long-term energy graph. The custom characteristic is auto-added on
+  // first updateValue, but adding it explicitly here makes it visible
+  // even before the first poll.
+  if (EveTotalConsumption && !thermo.testCharacteristic(EveTotalConsumption)) {
+    thermo.addCharacteristic(EveTotalConsumption);
+  }
 
   // Eve / fakegato history graphs (Roadmap M5).
   // The 'thermo' history type records currentTemp + setTemp + valvePosition
@@ -327,6 +369,11 @@ function pushRoomState(accessory, room) {
   // surfaces this as a countdown on the thermostat tile in some clients.
   thermo.getCharacteristic(Characteristic.RemainingDuration)
     .updateValue(deriveRemainingDuration(room));
+  // Eve.Energy.TotalConsumption: cumulative kWh from Warmup's `total` field.
+  if (EveTotalConsumption) {
+    thermo.getCharacteristic(EveTotalConsumption)
+      .updateValue(deriveTotalConsumption(room));
+  }
   temp.getCharacteristic(Characteristic.CurrentTemperature)
     .updateValue(Number(room.airTemp / 10));
 
@@ -462,6 +509,26 @@ function deriveStatusActive(room) {
 // minutes; convert. Defaults to 0 when no override active.
 function deriveRemainingDuration(room) {
   return Math.max(0, Math.round(((room.overrideDur || 0) * 60)));
+}
+
+// HAP requires FirmwareRevision to look like 1, 1.2, or 1.2.3 (each segment
+// up to 9 digits) — anything else fails validation and the accessory may
+// fail to publish. Warmup's `appFw` is "29.175"-ish in practice; validate
+// before using, fall back to plugin version on anything weird.
+const SEMVER_LIKE = /^\d{1,9}(\.\d{1,9}){0,2}$/;
+function deriveFirmwareRevision(room) {
+  const fw = room && room.appFw && String(room.appFw).trim();
+  if (fw && SEMVER_LIKE.test(fw)) return fw;
+  return PLUGIN_VERSION;
+}
+
+// Eve.Energy.TotalConsumption: cumulative kWh, monotonically increasing.
+// Warmup's `total` is the closest match (`energy` is today-only and resets
+// daily, which would make Eve's graph look bizarre). UINT32 expected;
+// defensive cast in case the API ever returns a string.
+function deriveTotalConsumption(room) {
+  const total = Number(room && room.total);
+  return Number.isFinite(total) && total >= 0 ? Math.floor(total) : 0;
 }
 
 function uuidForRoom(roomId) {

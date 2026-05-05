@@ -223,8 +223,8 @@ A grab bag of features ranging from purely additive (no GraphQL changes) to "nee
 | **`StatusActive` characteristic from `lastPoll`** | ✅ shipped v3.4.0 | ~30 min | Home app shows accessory as "Not Responding" if the thermostat hasn't checked in for >20 min. |
 | **`outputStatus` for accurate heating state** | ✅ shipped v3.4.0 | ~30 min + live test | `CurrentHeatingCoolingState=HEAT` reflects actual relay state, not the `currentTemp<targetTemp` heuristic. *Note: re-adding `parameters { outputStatus }` to the GraphQL query worked cleanly with `user.owned[].rooms[]` — the v3-era 409 was specific to the old `user.location(id:)` path.* |
 | **`RemainingDuration` characteristic** | ✅ shipped v3.4.0 | ~30 min | HomeKit / Eve countdown for active overrides. |
-| **`Eve.Energy.TotalConsumption` from `room.energy`** | open | ~1 h | Eve graphs of energy use over time. Needs Eve characteristic UUIDs (or `homebridge-lib`). |
-| **`FirmwareRevision` from `appFw`** | open | ~30 min + GraphQL change | Real device firmware version on the (i) info card. Needs `appFw` added to the GraphQL query. |
+| **`Eve.Energy.TotalConsumption` from `room.total`** | ✅ shipped v3.5.0 | ~1 h | Eve.app long-term energy graph per thermostat. Custom characteristic with the well-known Eve UUID; populated from `room.total` (cumulative kWh, not the daily-reset `room.energy`). |
+| **`FirmwareRevision` from `appFw`** | ✅ shipped v3.5.0 | ~30 min | Real device firmware on the (i) info card (validated against HAP's SemVer-ish regex; falls back to plugin version on anything weird). |
 | **Sensor offsets via Eve admin tab** | open | ~2 h | Calibrate floor probe ±1°C without the Warmup app. Needs Eve characteristic UUIDs + `deviceAdvanced` mutation. |
 | **Child lock toggle** | open | ~1 h | HomeKit Lock service mapped to `deviceAdvanced.lock`. |
 | **Display brightness control** | open | ~1 h | LightBulb-like service mapped to `deviceAdvanced.brightness` (0–10). |

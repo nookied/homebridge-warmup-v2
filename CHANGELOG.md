@@ -7,6 +7,51 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.5.0] — 2026-05-05
+
+Roadmap [Milestone 6](ROADMAP.md) batch 3 — energy graphs in Eve and real
+device firmware on the (i) info card.
+
+### Added
+
+- **`Eve.Energy.TotalConsumption` custom characteristic** on each
+  Thermostat. Well-known UUID `E863F10C-079E-48FF-8F27-9C2605A29F52` —
+  Eve.app reads this for its long-term energy graph. Populated from
+  Warmup's `room.total` (cumulative kWh; the `room.energy` field is
+  today-only and resets daily, which would make Eve's graph nonsensical).
+  Range 0–4 294 967 295 kWh (UINT32). Class definition wrapped in
+  try/catch so a hypothetical HAP-NodeJS API change doesn't kill the
+  plugin — energy graphs degrade to "unavailable" rather than breaking
+  the whole accessory.
+- **Real `FirmwareRevision`** from Warmup's `appFw` (e.g. `"29.175"`).
+  HAP requires `N{1,9}(.N{1,9}){0,2}` SemVer-ish format; we validate
+  before applying and fall back to `PLUGIN_VERSION` for anything that
+  doesn't parse (defensive against future API shape changes). Was
+  always plugin version regardless of device.
+- **GraphQL fields** `total`, `appFw`, `wifiFw` added to the query.
+  All three accepted cleanly by the gateway (live-tested before commit).
+  `wifiFw` is captured in `normalizeRoom` for future use but not yet
+  surfaced — the Warmup API returns it as an empty string in practice.
+
+### Tests
+
+- 103 total, 100 offline + 2 live + 1 destructive (skipped). Up from
+  95 in v3.4.0. New `firmware-and-energy.test.js` covers
+  `deriveFirmwareRevision` (valid SemVer-ish formats, invalid formats
+  with fallback, edge cases like leading `v`, pre-release suffixes,
+  4 segments, 10-digit segments, numeric coercion) and
+  `deriveTotalConsumption` (numeric, string, negative, NaN, missing).
+
+### What this looks like for users
+
+- **(i) info card** in Apple Home now shows the actual device firmware
+  (e.g. `29.175`) instead of `3.5.0` (the plugin version).
+- **Eve.app energy tab** now plots cumulative kWh per thermostat.
+  Combined with v3.2.0's temperature/heating-state history, you get a
+  complete picture of consumption over time.
+
+---
+
 ## [3.4.0] — 2026-05-05
 
 Roadmap [Milestone 6](ROADMAP.md) batch 2 — three additions, including the
