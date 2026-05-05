@@ -7,26 +7,62 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
-## [Unreleased]
+## [3.9.0] — 2026-05-05
+
+Post-release review pass (Codex). Three correctness fixes that surface
+under specific HomeKit usage patterns, plus a small refactor that makes
+the metadata helpers testable in isolation. **Recommended upgrade for
+anyone running v3.8.0 or earlier** — the debounce-promise fix in
+particular eliminates a class of "spinner that never resolves" issues
+when sliding the temperature.
 
 ### Fixed
 
 - **Debounced target-temperature writes now settle every HomeKit caller.**
-  Multiple slider updates inside the 300 ms debounce window share one pending
-  promise and send only the latest temperature to Warmup, avoiding stale
-  HomeKit writes hanging until HAP times out.
-- **Stale Vacation/Frost location switches are removed when the active
-  Warmup location changes.** Cached synthetic switches for an old `locId` no
-  longer linger in HomeKit after an account/location change.
-- **Live API tests now accept the full Warmup `runMode` enum**, including
-  `holiday`, `anti_frost`, and `gradual`.
+  Previously, when multiple slider updates landed inside the 300 ms
+  window, only the *last* call's promise was wired to the API result —
+  earlier callers were left with a Promise that would never resolve and
+  HomeKit would spin until HAP's own timeout fired. The debouncer now
+  shares a single `{value, timer, promise, resolve, reject}` per
+  accessory: the value is rolled forward to the latest slider position,
+  the timer is reset, and *every* caller resolves/rejects from the one
+  outgoing API call.
+- **Pending debounces are flushed on shutdown.** The shutdown handler
+  now rejects any in-flight debounced writes with
+  `HAPStatus.SERVICE_COMMUNICATION_FAILURE` instead of leaving HomeKit
+  callers hanging on a timer that will never fire.
+- **Stale Vacation/Frost location switches are unregistered when the
+  active Warmup location changes.** If you switched accounts or your
+  account's `user.owned[0]` location changed, cached synthetic switches
+  for the old `locId` previously lingered in HomeKit indefinitely. The
+  reconcile pass now diffs them out alongside stale thermostats.
+- **Live API tests accept the full Warmup `runMode` enum.** Was hard-coded
+  to `off | fixed | override | schedule`; now matches the
+  jondarrer/warmup-api schema (`not_set, off, schedule, override, fixed,
+  anti_frost, holiday, fil_pilote, gradual, relay, previous`). Stops
+  the live test from failing spuriously when a room reports e.g.
+  `holiday`.
 
 ### Internal
 
-- **Firmware/energy derivation helpers moved to `src/lib/metadata.js`** so
-  tests exercise production code directly instead of duplicating helper logic.
-- **`package-lock.json` root version refreshed to 3.8.0** to match
-  `package.json`.
+- **Metadata derivation helpers extracted to `src/lib/metadata.js`**
+  (`deriveFirmwareRevision`, `deriveTotalConsumption`). The unit tests in
+  `firmware-and-energy.test.js` now require the shipped module directly
+  instead of duplicating the helper logic — guarantees the tests catch
+  production drift rather than just verifying themselves.
+  `deriveFirmwareRevision` takes `fallback` as an explicit argument now,
+  so the helper is pure (no closure over `PLUGIN_VERSION`).
+- **`package-lock.json` root version refreshed** to match `package.json`.
+- **+2 platform-state tests** covering the new debounce behaviour and
+  stale-location-switch cleanup. 116 offline tests now pass (up from 114
+  in v3.8.0).
+
+### Verified
+
+- `npm run lint` — clean.
+- `npm test` — 116 offline tests pass (3 live tests skipped without
+  credentials).
+- `npm run smoke` — entry-point loads.
 
 ---
 

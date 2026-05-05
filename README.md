@@ -91,6 +91,8 @@ This is optional but recommended for any account with multiple thermostats.
 ### Temperature changes
 Any temperature change in HomeKit creates a Warmup **override** lasting `duration` minutes. After that, the room returns to whatever schedule was active before.
 
+Slider drags in the Home app are debounced to 300 ms — the plugin sends one API call after you stop, not one per finger movement. As of v3.9 every HomeKit caller waiting on a slider drag resolves cleanly; earlier 3.x versions could leave a HomeKit caller hanging on the spinner if you nudged the slider mid-debounce.
+
 ### Modes
 HomeKit thermostats expose four modes; this plugin only uses three:
 
@@ -131,6 +133,8 @@ The Warmup API rejected the call (e.g. invalid credentials, expired token, serve
 
 ### Multi-location accounts
 This plugin uses the **first** Warmup location returned by the GraphQL `user.owned[]` query. If you have e.g. a primary residence + a holiday home on the same Warmup account, only the first one is exposed. Run a second Homebridge instance/child bridge with a different account to expose the other location.
+
+If you switch the active Warmup account/location after the plugin has run, the Vacation Mode and Frost Protection switches that were created for the previous location are auto-removed at the next reconcile (since v3.9). Earlier versions would leave the old switches lingering in HomeKit until you removed them manually.
 
 ### "Wi-Fi Thermostat" shows as the model in Home app
 We currently set `Model = "Wi-Fi Thermostat"` because Warmup's cloud payload is still legacy-shaped around `Thermostat4iE` and does not give this plugin a reliable marketing model name for every supported device. A future GraphQL metadata pass may use firmware/device fields where available. If you want the actual model badge today, you can edit the accessory in the Home app.
