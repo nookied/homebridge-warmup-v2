@@ -209,22 +209,26 @@ The REST API at `api.warmup.com/apps/app/v1` is a legacy compatibility layer. Ev
 
 ---
 
-### Milestone 6 — v3.3.0+ — Optional polish
+### Milestone 6 — v3.3.0+ — Optional polish (in progress)
 
-A grab bag of GraphQL-enabled features. Each independently shippable. Pick based on user demand.
+A grab bag of features ranging from purely additive (no GraphQL changes) to "needs a careful query addition + live test". Each independently shippable. Pick based on user demand.
 
-| Feature | Effort | User benefit |
-|---|---|---|
-| **Holiday mode as a HomeKit Switch** | ~2 h | Toggle to set the whole location into vacation mode at a defined frost-low temp |
-| **Per-location Frost mode as a HomeKit Switch** | ~1 h | One-tap "frost protection" (e.g. when leaving for the weekend) |
-| **`StatusActive` characteristic from `lastPoll`** | ~30 min | Home app shows accessory as "offline" if the thermostat hasn't checked in for >20 min |
-| **`outputStatus` for accurate heating state** | ~30 min | `CurrentHeatingCoolingState=HEAT` reflects actual relay state, not the `currentTemp<targetTemp` heuristic |
-| **`RemainingDuration` characteristic** | ~30 min | Home shows "Override active for N minutes" with countdown |
-| **Sensor offsets via Eve admin tab** | ~2 h | Calibrate the floor probe ±1°C without using the Warmup app |
-| **Child lock toggle** | ~1 h | HomeKit Lock service mapped to `deviceAdvanced.lock` |
-| **Display brightness control** | ~1 h | LightBulb-like service mapped to `deviceAdvanced.brightness` (0–10) |
-| **Multi-thermostat firmware version reporting** | ~30 min | `FirmwareRevision` from `appFw` instead of plugin's own version |
-| **Schedule introspection (read-only)** | ~1 h | Surface the week's schedule as a JSON attribute (not editable from HomeKit, but visible in Eve / HA) |
+| Feature | Status | Effort | User benefit |
+|---|---|---|---|
+| **`StatusFault` from sensor fault flags** | ✅ shipped v3.3.0 | ~30 min | Sensor disconnects show as a fault badge in HomeKit accessory diagnostics. |
+| **`runMode` edge cases** (`anti_frost`, `holiday`, `gradual`, etc.) | ✅ shipped v3.3.0 | ~30 min | `TargetHeatingCoolingState` is correct for vacation/frost-protection modes (was: always HEAT). |
+| **Defensive: 0-room poll doesn't unregister cache** | ✅ shipped v3.3.0 | ~30 min | A transient Warmup API hiccup no longer rips users' HomeKit tiles out of rooms / scenes. |
+| **Holiday mode as a HomeKit Switch** | open | ~2 h | Toggle to set the whole location into vacation mode at a defined frost-low temp. Needs new `deviceHoliday` GraphQL mutation. |
+| **Per-location Frost mode as a HomeKit Switch** | open | ~1 h | One-tap "frost protection" (e.g. leaving for the weekend). Needs `setModes locMode:"frost"` REST or `deviceFrost` GraphQL. |
+| **`StatusActive` characteristic from `lastPoll`** | open | ~30 min | Home app shows accessory as "offline" if the thermostat hasn't checked in for >20 min. Data already in `normalizeRoom`. |
+| **`outputStatus` for accurate heating state** | open (risky) | ~30 min + live test | `CurrentHeatingCoolingState=HEAT` reflects actual relay state, not the `currentTemp<targetTemp` heuristic. **Requires re-adding `parameters { outputStatus }` to the GraphQL query — caused a 409 in v3 development; needs careful retry.** |
+| **`RemainingDuration` characteristic** | open | ~30 min | Home shows "Override active for N minutes" with countdown. Data already in `normalizeRoom` (`overrideDur`). |
+| **`Eve.Energy.TotalConsumption` from `room.energy`** | open | ~1 h | Eve graphs of energy use over time. Needs Eve characteristic UUIDs (or `homebridge-lib`). |
+| **`FirmwareRevision` from `appFw`** | open | ~30 min + GraphQL change | Real device firmware version on the (i) info card. Needs `appFw` added to the GraphQL query. |
+| **Sensor offsets via Eve admin tab** | open | ~2 h | Calibrate floor probe ±1°C without the Warmup app. Needs Eve characteristic UUIDs + `deviceAdvanced` mutation. |
+| **Child lock toggle** | open | ~1 h | HomeKit Lock service mapped to `deviceAdvanced.lock`. |
+| **Display brightness control** | open | ~1 h | LightBulb-like service mapped to `deviceAdvanced.brightness` (0–10). |
+| **Schedule introspection (read-only)** | open | ~1 h | Surface the week's schedule as a JSON attribute (not editable from HomeKit, but visible in Eve / HA). |
 
 ---
 

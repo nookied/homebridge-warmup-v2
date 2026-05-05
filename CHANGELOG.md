@@ -7,6 +7,54 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.3.0] — 2026-05-05
+
+Roadmap [Milestone 6](ROADMAP.md) batch 1 — incremental polish. No GraphQL
+changes; everything uses data we already fetch. `config.json` unchanged.
+
+### Added
+- **`StatusFault` characteristic** on each Thermostat. Reads
+  `room.isFaultAir | isFaultFloor1 | isFaultFloor2` (data already in the
+  normalized room shape from v3.0). Surfaces sensor disconnects in
+  HomeKit's accessory diagnostics — better than mysterious wrong
+  readings. NO_FAULT (0) when clean, GENERAL_FAULT (1) when any flag set.
+- **`runMode` edge-case handling** in `state.js` for the rare modes the
+  GraphQL schema documents (`anti_frost`, `holiday`, `gradual`,
+  `fil_pilote`, `relay`, `previous`, `not_set`):
+  - `holiday` → `TargetHeatingCoolingState = OFF` (location-wide vacation
+    mode; user expectation = "off"). `Current` still tracks `currentTemp <
+    targetTemp` because heating to the holiday setpoint *is* heating.
+  - `anti_frost` → `Target = OFF` (frost protection is passive).
+    `Current` still tracks the temp delta.
+  - `gradual` (early-start ramp-up) → `Target = AUTO`.
+  - The four `not_set | fil_pilote | relay | previous` rare modes →
+    `Target = HEAT` (safe fallback; better than OFF when heating may be
+    happening).
+
+### Fixed
+- **Defensive guard against transient empty rooms.** If Warmup returns
+  `owned[0].rooms = []` (a transient API hiccup; the user almost
+  certainly didn't actually delete every thermostat in the seconds
+  between polls), `reconcileAccessories` now logs a warning and skips
+  the unregister-stale step. Without this guard, a single bad poll
+  would rip every cached accessory out of the user's HomeKit rooms /
+  scenes / automations.
+
+### Documentation
+- Per-thermostat metadata fields in `normalizeRoom` get inline comments
+  explaining what each is for and which roadmap milestone surfaces it.
+
+### Tests
+- 89 total, 86 offline + 2 live + 1 destructive (skipped). Up from 75
+  in 3.2.0. Notable additions:
+  - `state-derivers.test.js`: 8 new test cases covering every documented
+    `runMode` value (and a few unknown-mode fallbacks).
+  - `platform-state.test.js`: `StatusFault` flow (NO_FAULT initially,
+    GENERAL_FAULT after a sensor flag flips on the next poll); empty-rooms
+    defensive guard (cached accessory survives a 0-room poll response).
+
+---
+
 ## [3.2.0] — 2026-05-05
 
 Roadmap [Milestone 5](ROADMAP.md) — **Eve / fakegato history graphs.**

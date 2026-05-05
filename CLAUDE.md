@@ -12,7 +12,7 @@ This file is the canonical persistent memory for this project. Any assistant/age
 **Repo:** [`https://github.com/nookied/homebridge-warmup4ie-v2`](https://github.com/nookied/homebridge-warmup4ie-v2) — **maintained fork**, published to npm under a distinct name
 **Original (abandoned reference):** [NorthernMan54/homebridge-warmup4ie](https://github.com/NorthernMan54/homebridge-warmup4ie) — broke at 0.1.0 in Dec 2024 and never fixed; do not pull from or push to it
 **License:** Apache-2.0 (preserved from original; LICENSE file added in 2.0.0)
-**Current version:** **3.2.0** (Eve / fakegato history graphs; published 2026-05-05). Major v3 milestones: 3.0 GraphQL transport + per-room Off, 3.1 dynamic platform / Verified-eligible, 3.2 fakegato temperature history. Unreleased changes (if any) on `main` — check `git log v3.2.0..main`.
+**Current version:** **3.3.0** (M6 batch 1 — `StatusFault`, `runMode` edge cases, empty-rooms guard; published 2026-05-05). Major v3 milestones: 3.0 GraphQL + per-room Off, 3.1 dynamic platform / Verified-eligible, 3.2 fakegato history, 3.3 sensor faults + runMode polish. Unreleased changes (if any) on `main` — check `git log v3.3.0..main`.
 **Engines:** Homebridge `^1.6.0 || ^2.0.0`; Node `^18.20.4 || ^20.15.1 || ^22.0.0 || ^24.0.0`
 
 ### Fork rules
@@ -257,6 +257,7 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 - **v3.0.1:** platform-instance state isolation; failed bootstrap doesn't poll; write methods preserve cache on errors; `_fetchRooms` replaces cache (removed rooms don't linger); `Math.round(value * 10)` for tenths; login token validation; `connection: close` (kills TLSWRAP warning in tests).
 - **v3.1:** dynamic platform (`registerPlatform(.., true)`, `configureAccessory`, `discoverDevices`, `reconcileAccessories`); cached-accessory restoration survives Warmup-cloud outages at boot; stable per-room UUIDs; `Warmup4ieAccessory` class replaced by free functions on `PlatformAccessory`. **All Verified-Plugin requirements now met** — application queued as Roadmap M7.
 - **v3.2:** `fakegato-history@^0.6.7` re-introduced for Eve.app temperature/heating-state history graphs. Per-thermostat `'thermo'` history service; per-poll entry of `{currentTemp, setTemp, valvePosition}`; `valvePosition` synthesized from heating state. Energy characteristics deferred to M6.
+- **v3.3 (M6 batch 1):** `StatusFault` characteristic on Thermostat (sensor diagnostics from existing `isFault*` data); `runMode` edge cases handled in `state.js` (`holiday` and `anti_frost` → OFF, `gradual` → AUTO, rest fall through to HEAT); defensive guard against transient empty-rooms responses (prevents nuking the cache on a single bad poll).
 
 ### By design (won't fix)
 - **First location only.** `_fetchRooms` takes `user.owned[0]`. If you have multiple Warmup locations on one account (e.g. primary residence + holiday home), only the first one is exposed. To expose a second location, run a second Homebridge child bridge with another account. A `location: "name"` config option to filter by name is feasible and would mirror the Python reference, but isn't planned.

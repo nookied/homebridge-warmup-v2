@@ -123,6 +123,16 @@ warmup4iePlatform.prototype = {
   // register/unregister deltas to Homebridge so the on-disk cache + HomeKit
   // bridge match the Warmup account.
   reconcileAccessories: function (rooms) {
+    // Defensive: an empty rooms array is *probably* a transient Warmup
+    // hiccup (the user didn't actually delete every thermostat). Skip
+    // unregistering cached accessories — they'll show "Not Responding"
+    // until the next poll, but we don't rip their HomeKit tiles out of
+    // rooms / scenes / automations on a glitch.
+    if (rooms.length === 0 && this.accessories.size > 0) {
+      this.log.warn('Warmup returned 0 rooms but %s cached accessories exist — keeping cache untouched', this.accessories.size);
+      return;
+    }
+
     const seen = new Set();
     const toRegister = [];
 
@@ -298,6 +308,11 @@ function pushRoomState(accessory, room) {
     .updateValue(heatingState);
   thermo.getCharacteristic(Characteristic.TargetHeatingCoolingState)
     .updateValue(deriveTargetHeatingState(room));
+  // StatusFault: NO_FAULT (0) when sensors look fine, GENERAL_FAULT (1)
+  // when any of the per-thermostat fault flags is set. Calling
+  // .getCharacteristic on an optional characteristic auto-adds it.
+  thermo.getCharacteristic(Characteristic.StatusFault)
+    .updateValue(deriveStatusFault(room));
   temp.getCharacteristic(Characteristic.CurrentTemperature)
     .updateValue(Number(room.airTemp / 10));
 
@@ -408,6 +423,14 @@ function hasRequiredConfig(platform) {
 // characteristic's [minTemp, maxTemp] range, so clamp.
 function effectiveTargetTemp(room) {
   return room.targetTemp > room.minTemp ? room.targetTemp : room.minTemp;
+}
+
+// HAP StatusFault: NO_FAULT (0) | GENERAL_FAULT (1). Surfaces sensor
+// disconnects (air or floor probes) so the user gets a visible "fault" badge
+// in HomeKit's accessory diagnostics rather than mysterious wrong readings.
+function deriveStatusFault(room) {
+  const anyFault = room.isFaultAir || room.isFaultFloor1 || room.isFaultFloor2;
+  return anyFault ? Characteristic.StatusFault.GENERAL_FAULT : Characteristic.StatusFault.NO_FAULT;
 }
 
 function uuidForRoom(roomId) {

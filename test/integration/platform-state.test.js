@@ -81,7 +81,10 @@ function fakeHomebridge() {
         CurrentTemperature: 'CurrentTemperature',
         TargetTemperature: 'TargetTemperature',
         CurrentHeatingCoolingState: 'CurrentHeatingCoolingState',
-        TargetHeatingCoolingState: 'TargetHeatingCoolingState'
+        TargetHeatingCoolingState: 'TargetHeatingCoolingState',
+        // Object form because the source reads `.NO_FAULT` / `.GENERAL_FAULT`
+        // sub-properties. Map.get() uses object identity for the lookup.
+        StatusFault: { name: 'StatusFault', NO_FAULT: 0, GENERAL_FAULT: 1 }
       },
       HapStatusError: class HapStatusError extends Error {
         constructor(status) { super(String(status)); this.status = status; }
@@ -124,12 +127,14 @@ function fakeLog() {
   return { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
 }
 
-function room(roomId, roomName) {
+function room(roomId, roomName, overrides = {}) {
   return {
     roomId, roomName,
     runMode: 'schedule', roomMode: 'program',
     targetTemp: 210, currentTemp: 200, airTemp: '200',
-    minTemp: 50, maxTemp: 300
+    minTemp: 50, maxTemp: 300,
+    isFaultAir: false, isFaultFloor1: false, isFaultFloor2: false,
+    ...overrides
   };
 }
 
@@ -269,6 +274,46 @@ describe('warmup4ie dynamic platform', () => {
     platform.shutdown();
   });
 
+  test('defensive: empty live rooms list does NOT unregister cached accessories', async () => {
+    // Build a Warmup4IE mock that returns 0 rooms.
+    jest.resetModules();
+    jest.doMock('../../src/lib/warmup4ie', () => {
+      const Mock = jest.fn(function (options, callback) {
+        this.options = options;
+        this.room = [];
+        this.getStatus = jest.fn(async () => []);
+        this.setRoomAuto = jest.fn(async () => {});
+        this.setRoomOff = jest.fn(async () => {});
+        this.setTargetTemperature = jest.fn(async () => {});
+        queueMicrotask(() => callback(null, []));
+      });
+      return { Warmup4IE: Mock };
+    });
+    jest.doMock('fakegato-history', () => MockFakeGato);
+    const localApi = fakeHomebridge();
+    const plugin = require('../../src/index.js');
+    plugin(localApi);
+    const LocalPlatformCtor = localApi.calls.register[0].ctor;
+
+    const platform = new LocalPlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, localApi
+    );
+    // Pre-populate the cache as Homebridge would on restart.
+    const cached = new FakePlatformAccessory('Living Room', 'UUID(warmup4ie:111)');
+    platform.configureAccessory(cached);
+
+    localApi.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The cached accessory must still be there — no unregister calls.
+    expect(localApi.calls.unregister).toHaveLength(0);
+    expect(platform.accessories.has('UUID(warmup4ie:111)')).toBe(true);
+
+    platform.shutdown();
+  });
+
   test('discovery: cached accessory matching a live room is reused (not unregistered)', async () => {
     const platform = new PlatformCtor(
       fakeLog(),
@@ -325,6 +370,52 @@ describe('warmup4ie dynamic platform', () => {
 
     platformOne.shutdown();
     platformTwo.shutdown();
+  });
+
+  test('StatusFault: NO_FAULT for a healthy room, GENERAL_FAULT when any sensor flag is set', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    const thermo = accessory.getService(api.hap.Service.Thermostat);
+    const statusFault = thermo.getCharacteristic(api.hap.Characteristic.StatusFault);
+
+    // Initial healthy push from attachAccessoryServices
+    expect(statusFault.updateValue).toHaveBeenCalledWith(0); // NO_FAULT
+
+    // Simulate a faulty floor probe on the next poll by mutating the cached
+    // room and calling pushRoomState path indirectly via getStatus → poll.
+    platform.thermostats.room[100001].isFaultFloor1 = true;
+    statusFault.updateValue.mockClear();
+
+    // Trigger a poll cycle manually
+    await platform.thermostats.getStatus();
+    platform.thermostats.room.forEach((r) => {
+      if (r) {
+        // updateAccessoryState is module-internal; trigger via the public
+        // pushRoomState path by calling the attach helper which calls it.
+        // Easier: just call getStatus() and let the polling loop fire — but
+        // that needs fake timers. For a unit-test view, fire the attach
+        // helper to re-push state.
+      }
+    });
+    // Real polls go through updateAccessoryState → pushRoomState. Trigger
+    // the polling loop and let it pick up the mutated room.
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    platform.startPolling();
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(statusFault.updateValue).toHaveBeenCalledWith(1); // GENERAL_FAULT
+    platform.shutdown();
+    jest.useRealTimers();
   });
 
   test('fakegato history: a service is attached per accessory and addEntry fires per poll', async () => {

@@ -270,9 +270,15 @@ function normalizeRoom(r) {
     fixedTemp: r.fixedTemp,
     energy: r.energy,
     cost: r.cost,
-    // Fields surfaced for future M5/M6 use (Eve energy graphs, StatusFault).
-    // M6 will additionally fetch `parameters { outputStatus }` for the
-    // real "is currently heating" relay signal — not in the query today.
+    // Per-thermostat metadata. Fault flags drive the platform's `StatusFault`
+    // characteristic (M6 batch 1). The rest are queued for follow-up:
+    //   - `floor1Temp`/`floor2Temp` — exposed as a separate sensor in M6+.
+    //   - `deviceSN` — could replace `warmup4ie-<roomId>` as SerialNumber, but
+    //     would force HomeKit to re-pair existing accessories. Not worth it.
+    //   - `lastPoll` — drives `StatusActive` (offline detection) in M6+.
+    //   - `parameters { outputStatus }` (relay state) is not in the GraphQL
+    //     query yet — re-adding caused a 409 during v3 development; M6 will
+    //     try again carefully and use it for `CurrentHeatingCoolingState`.
     floor1Temp: t.floor1Temp,
     floor2Temp: t.floor2Temp,
     isFaultAir: t.isFaultAir,
