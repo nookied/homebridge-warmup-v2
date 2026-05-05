@@ -1,0 +1,6 @@
+{
+  "status": { "result": "success" },
+  "response": {
+    "token": "mock-access-token-abc123"
+  }
+}

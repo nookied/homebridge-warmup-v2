@@ -1,0 +1,4 @@
+{
+  "status": { "result": "error", "code": 100, "message": "Invalid credentials" },
+  "message": "Invalid credentials"
+}

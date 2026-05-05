@@ -7,7 +7,8 @@
 
 const debug = require('debug')('warmup4ie');
 const { Warmup4IE } = require('./lib/warmup4ie');
-const { version: PLUGIN_VERSION } = require('../package.json');
+const { deriveCurrentHeatingState, deriveTargetHeatingState } = require('./lib/state');
+const { version: PLUGIN_VERSION, name: PLUGIN_NAME } = require('../package.json');
 
 let Service, Characteristic;
 const myAccessories = [];
@@ -17,7 +18,10 @@ module.exports = function (homebridge) {
   Service = homebridge.hap.Service;
   Characteristic = homebridge.hap.Characteristic;
 
-  homebridge.registerPlatform('homebridge-warmup4ie', 'warmup4ie', warmup4iePlatform);
+  // First arg matches the npm package name (Homebridge uses it for plugin
+  // disambiguation). Second arg is the platform identifier users put in
+  // their config.json — kept as `warmup4ie` for migration compatibility.
+  homebridge.registerPlatform(PLUGIN_NAME, 'warmup4ie', warmup4iePlatform);
 };
 
 function warmup4iePlatform(log, config /* , api */) {
@@ -91,21 +95,6 @@ function updateStatus(room) {
   acc.temperatureService
     .getCharacteristic(Characteristic.CurrentTemperature)
     .updateValue(Number(room.airTemp / 10));
-}
-
-function deriveCurrentHeatingState(room) {
-  if (room.runMode === 'off') return 0;
-  return room.currentTemp < room.targetTemp ? 1 : 0;
-}
-
-function deriveTargetHeatingState(room) {
-  switch (room.runMode) {
-    case 'off': return 0;
-    case 'fixed':
-    case 'override': return 1;
-    case 'schedule': return 3;
-    default: return 1;
-  }
 }
 
 function Warmup4ieAccessory(that, name, room) {

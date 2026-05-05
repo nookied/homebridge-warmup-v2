@@ -1,0 +1,9 @@
+{
+  "status": { "result": "success" },
+  "response": {
+    "locations": [
+      { "id": 12345, "name": "Primary Residence" },
+      { "id": 67890, "name": "Holiday Home" }
+    ]
+  }
+}

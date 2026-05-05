@@ -1,3 +1,20 @@
+# Tests and fixtures — not needed at runtime
 test/
+
+# Linting and CI config — not needed by consumers
 eslint.config.mjs
 .github/
+
+# Project meta — not needed by npm install
+QA_TESTS.md
+CLAUDE.md
+AGENTS.md
+
+# Local tool state
+.claude/
+.vscode/
+.idea/
+
+# Source-only build artefacts
+*.log
+*.tgz

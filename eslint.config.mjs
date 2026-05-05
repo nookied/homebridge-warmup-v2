@@ -9,7 +9,7 @@ export default [
     languageOptions: {
       sourceType: "commonjs", // Change to "module" for ES6
       globals: {
-        ...globals.browser,
+        ...globals.node,
         ...globals.es2021,
         ...globals.jest, // Add Jest globals
       },

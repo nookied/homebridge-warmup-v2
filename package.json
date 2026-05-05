@@ -1,22 +1,28 @@
 {
-  "name": "homebridge-warmup4ie",
-  "version": "0.1.2",
-  "description": "Warmup4IE Thermostat Plugin Homebridge",
+  "name": "homebridge-warmup4ie-v2",
+  "version": "2.0.0",
+  "description": "Homebridge plugin for Warmup 4iE underfloor-heating thermostats. Maintained fork of homebridge-warmup4ie with fixes for Homebridge 2.0 and the broken Off control in 0.1.0–0.1.1.",
   "main": "src/index.js",
   "scripts": {
     "lint": "eslint --max-warnings=0 .",
     "lint:fix": "eslint --fix --max-warnings=0 .",
     "watch": "nodemon",
     "test": "jest --detectOpenHandles",
-    "test-coverage": "jest --coverage"
+    "test-coverage": "jest --coverage",
+    "smoke": "node -e \"const m = require('./src/index.js'); if (typeof m !== 'function') { process.exit(1); }\""
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NorthernMan54/homebridge-warmup4ie.git"
+    "url": "git+https://github.com/nookied/homebridge-warmup4ie.git"
   },
   "keywords": [
+    "homebridge-plugin",
+    "homebridge-warmup4ie",
     "warmup4ie",
-    "homebridge-plugin"
+    "warmup",
+    "thermostat",
+    "underfloor-heating",
+    "homekit"
   ],
   "engines": {
     "homebridge": "^1.6.0 || ^2.0.0-beta.0",
@@ -34,12 +40,12 @@
     "jest": "^29.7.0",
     "nodemon": "^3.1.7"
   },
-  "author": "NorthernMan54",
+  "author": "Karol Nowacki (fork of NorthernMan54/homebridge-warmup4ie)",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/NorthernMan54/homebridge-warmup4ie/issues"
+    "url": "https://github.com/nookied/homebridge-warmup4ie/issues"
   },
-  "homepage": "https://github.com/NorthernMan54/homebridge-warmup4ie#readme",
+  "homepage": "https://github.com/nookied/homebridge-warmup4ie#readme",
   "nodemonConfig": {
     "watch": [
       "src"

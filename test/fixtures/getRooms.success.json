@@ -1,0 +1,55 @@
+{
+  "status": { "result": "success" },
+  "response": {
+    "rooms": [
+      {
+        "roomId": 100001,
+        "roomName": "Living Room",
+        "runMode": "schedule",
+        "roomMode": "program",
+        "targetTemp": 210,
+        "currentTemp": 205,
+        "airTemp": "215",
+        "minTemp": 50,
+        "maxTemp": 300,
+        "overrideDur": 0,
+        "overrideTemp": 0,
+        "fixedTemp": 200,
+        "energy": "0.00",
+        "cost": "0.00"
+      },
+      {
+        "roomId": 100002,
+        "roomName": "Bedroom",
+        "runMode": "off",
+        "roomMode": "program",
+        "targetTemp": 200,
+        "currentTemp": 180,
+        "airTemp": "195",
+        "minTemp": 50,
+        "maxTemp": 300,
+        "overrideDur": 0,
+        "overrideTemp": 0,
+        "fixedTemp": 200,
+        "energy": "0.00",
+        "cost": "0.00"
+      },
+      {
+        "roomId": 100003,
+        "roomName": "Bathroom",
+        "runMode": "override",
+        "roomMode": "program",
+        "targetTemp": 230,
+        "currentTemp": 220,
+        "airTemp": "225",
+        "minTemp": 50,
+        "maxTemp": 300,
+        "overrideDur": 30,
+        "overrideTemp": 230,
+        "fixedTemp": 200,
+        "energy": "0.00",
+        "cost": "0.00"
+      }
+    ]
+  }
+}

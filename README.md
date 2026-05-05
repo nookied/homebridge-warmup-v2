@@ -1,63 +1,152 @@
-# homebridge-warmup4ie
+# homebridge-warmup4ie-v2
 
-Homebridge plugin for the WarmUP 4iE thermostat.
+[![npm](https://img.shields.io/npm/v/homebridge-warmup4ie-v2.svg)](https://www.npmjs.com/package/homebridge-warmup4ie-v2)
+[![Apache 2.0](https://img.shields.io/npm/l/homebridge-warmup4ie-v2.svg)](LICENSE)
 
-Plugin works with program mode only, and changes to the temperature are treated as an override.  Fixed temperature mode is not supported.  
+Homebridge plugin for **[Warmup 4iE](https://www.warmup.com/thermostats/smart/4ie)** underfloor-heating thermostats.
 
-# Table of Contents
+This is a **maintained fork** of [`homebridge-warmup4ie`](https://github.com/NorthernMan54/homebridge-warmup4ie) (NorthernMan54), which became broken at version 0.1.0–0.1.1 in late 2024 and has not been updated since. The original silently rejected the `Off` HomeKit command (location turn-off API was sending the wrong body) and overrode temperatures in UTC instead of local time. This fork restores the working behaviour, replaces the deprecated `request` HTTP library with native `fetch`, and adds a real test suite.
 
-<!--ts-->
-   * [homebridge-warmup4ie](#homebridge-warmup4ie)
-   * [Table of Contents](#table-of-contents)
-   * [Using the plugin](#using-the-plugin)
-      * [Temperature Control](#temperature-control)
-      * [Mode Setting](#mode-setting)
-   * [Settings](#settings)
-      * [Required settings](#required-settings)
-      * [Optional settings](#optional-settings)
+If you have `homebridge-warmup4ie` installed, **uninstall it first** before installing this package — see [Migration](#migration) below.
 
-<!-- Added by: sgracey, at:  -->
+## Why this fork exists
 
-<!--te-->
+The 0.1.0 rewrite of the original plugin (PR #7, "Beta 0.1.0 - HB 2.0 support") simplified two wire-format details that the Warmup cloud API silently rejects:
 
-# Using the plugin
+- The `setModes locMode: "off"` body lost five required filler keys (`holEnd`, `holStart`, `holTemp`, `fixedTemp`, `geoMode`). The API responds with `200 OK` + `{status:{result:"error"}}` — the plugin treated that as success, so HomeKit reported "Off" while the thermostats kept heating.
+- The override `until` time switched from local-time `HH:MM` to UTC, making boost overrides expire at the wrong wall-clock time.
 
-Thermostats are retrieved from the my.warmup.com site, and are automatically created in the Home App.
+Both regressions were verified byte-for-byte against the [Python reference implementation](https://github.com/alex-0103/warmup4IE) and fixed in this fork's first release. See [CHANGELOG.md](CHANGELOG.md) for the full restoration story.
 
-## Temperature Control
+## Install
 
-Changes to the temperature create a temperature override for the current setting.  Length of the override defaults to 60 Minutes ( or the duration setting).  
-
-## Mode Setting
-
-`Off` - Turns off the thermostat
-`Heat` - Turns on the thermostat and resumes current program
-`Auto` - Turns on the thermostat and resumes current program
-
-When the thermostat is in temperature override mode, the Mode setting is set to `Heat`.  To clear the override and resume program mode, turn the mode control to `Auto`.
-
-# Settings
-
-```
-"platforms": [{
-  "platform": "warmup4ie",
-  "name": "WarmUP",
-  "username": "XXXXXXXXXXXX",
-  "password": "XXXXXXXXXXXX"
-}]
+```bash
+sudo npm install -g homebridge-warmup4ie-v2
 ```
 
-## Required settings
+Or via the Homebridge UI: search for **homebridge-warmup4ie-v2** in the plugin browser.
 
-* `username` - Your My.Warmup.com email address / login
-* `password` - Your My.Warmup.com password
+To install straight from git instead of npm (e.g. to pin a specific commit):
 
-## Optional settings
+```bash
+sudo npm install -g github:nookied/homebridge-warmup4ie
+```
 
-* `refresh` - Data polling interval in seconds, defaults to 60 seconds
-* `duration` - Duration of temperature override, defaults to 60 minutes
+## Configuration
 
-## Notes
+Add a platform entry to your Homebridge `config.json`:
 
-* `Off` is **location-wide**. The Warmup cloud API has no documented per-room hard-off, so turning any one thermostat to *Off* in HomeKit turns the whole location off (which is what the Warmup mobile app does too).
-* Temperature changes always create an *override* of length `duration` minutes, after which the schedule resumes.
+```jsonc
+{
+  "platforms": [
+    {
+      "platform": "warmup4ie",
+      "name": "WarmUP",
+      "username": "you@example.com",
+      "password": "your-my.warmup.com-password",
+      "refresh": 60,
+      "duration": 60
+    }
+  ]
+}
+```
+
+| Key | Required | Default | Notes |
+|---|---|---|---|
+| `platform` | yes | — | Must be exactly `"warmup4ie"` (the platform identifier — same as the original plugin, so existing configs migrate without edits) |
+| `name` | yes | — | Display name in Homebridge logs |
+| `username` | yes | — | Your my.warmup.com email |
+| `password` | yes | — | Your my.warmup.com password |
+| `refresh` | no | `60` | API polling interval, seconds |
+| `duration` | no | `60` | Override duration, minutes — how long a manual temperature change stays active before the schedule resumes |
+
+## Behaviour
+
+### Temperature changes
+Any temperature change in HomeKit creates a Warmup **override** lasting `duration` minutes. After that, the room returns to whatever schedule was active before.
+
+### Modes
+HomeKit thermostats expose four modes; this plugin only uses three:
+
+| HomeKit | Action on Warmup |
+|---|---|
+| **Off** | Sends `setModes locMode=off` — turns off the **whole location** (see below). Same behaviour as the Warmup mobile app's "Off" button. |
+| **Heat** | Resumes the room's program. If the room is already in `fixed` or `override` state, no-op (preserves the override). |
+| **Auto** | Resumes the room's program (same as Heat). |
+| **Cool** | Not used — Warmup is a heating-only system. |
+
+### Off is location-wide, not per-room
+The Warmup cloud API has no per-room hard-off operation — confirmed against the Python reference impl and the mobile app's wire traffic. If you have multiple rooms on one account, tapping "Off" on **any** room turns the whole location off. This is the API contract, not a plugin limitation. If you want a per-room "off" effect, set `Heat` mode and drop the temperature to a frost setpoint (~5°C); the room stops heating until you raise it again.
+
+## Migration
+
+If you're moving from the original `homebridge-warmup4ie`:
+
+```bash
+sudo npm uninstall -g homebridge-warmup4ie
+sudo npm install -g homebridge-warmup4ie-v2
+sudo systemctl restart homebridge   # or: hb-service restart
+```
+
+**Your `config.json` does not need changes.** The platform identifier (`"platform": "warmup4ie"`) is unchanged for compatibility — only the npm package name differs.
+
+If accessories appear duplicated after migration, clear Homebridge's cached accessories from the UI (Settings → Remove Single Cached Accessory) for the orphaned ones from the old plugin.
+
+## Troubleshooting
+
+### Plugin won't start, error mentions `fakegato-history`
+You're still on `homebridge-warmup4ie@0.0.14` or older. Uninstall it (`sudo npm uninstall -g homebridge-warmup4ie`) and install this fork.
+
+### "Off" doesn't actually stop the heat
+On `homebridge-warmup4ie@0.1.0` or `0.1.1`? That version has the broken `setRoomOff` body. Switch to this fork.
+
+### "Not Responding" in Home app after a control action
+The Warmup API rejected the call (e.g. invalid credentials, expired token, server error). Check the Homebridge log for `Warmup API: ...` errors. This plugin surfaces API-level errors instead of swallowing them; that's intentional — the original plugin would silently report success.
+
+### Multi-location accounts
+This plugin uses the **first** location only (`locations[0].id`). If you have e.g. a primary residence + a holiday home on the same Warmup account, only the first one is exposed. Run a second Homebridge instance/child bridge with a different account to expose the other location.
+
+### Live API debugging
+```bash
+DEBUG=warmup4ie* sudo -E systemctl restart homebridge
+sudo journalctl -u homebridge -f
+```
+
+## Development
+
+```bash
+git clone https://github.com/nookied/homebridge-warmup4ie.git
+cd homebridge-warmup4ie
+npm install
+npm run lint                  # ESLint
+npm test                      # Jest — unit + integration (no network)
+npm run watch                 # Run plugin against test/hbConfig sandbox
+
+WARMUP_LIVE_TEST=1 \
+WARMUP_USERNAME=you@example.com \
+WARMUP_PASSWORD=... \
+  npm test                    # Adds the live-API test suite
+```
+
+See [QA_TESTS.md](QA_TESTS.md) for the manual pre-release checklist.
+
+## Versioning
+
+This fork starts at **2.0.0** as a tribute to the original v1 lineage. From here, the fork follows [Semantic Versioning](https://semver.org/):
+
+| Bump | When |
+|---|---|
+| **MAJOR** (`X.0.0`) | Breaking change to config keys or HomeKit accessory shape |
+| **MINOR** (`X.Y.0`) | New feature (e.g. multi-location config, new HomeKit service) |
+| **PATCH** (`X.Y.Z`) | Bug fix, dependency bump, doc-only change |
+
+Releases are tag-driven: `npm version patch && git push --follow-tags` triggers the publish workflow.
+
+## License
+
+[Apache 2.0](LICENSE). Copyright 2019–2024 NorthernMan54 (original) + 2026 Karol Nowacki (this fork). The Apache-2.0 license is preserved from the original.
+
+## Credits
+
+- **NorthernMan54** — original `homebridge-warmup4ie` (2019), the basis for this fork.
+- **alex-0103** — [`warmup4IE`](https://github.com/alex-0103/warmup4IE) Python reference implementation, the source of truth for the Warmup cloud API wire format.

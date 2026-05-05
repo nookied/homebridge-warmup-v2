@@ -6,14 +6,21 @@ This file is the canonical persistent memory for this project. Any assistant/age
 
 ## Project Overview
 
-**Name:** homebridge-warmup4ie
+**npm name:** `homebridge-warmup4ie-v2`
 **Type:** Homebridge plugin (Node.js, CommonJS)
 **Purpose:** Expose Warmup 4iE underfloor-heating thermostats as HomeKit Thermostat accessories
-**Upstream author:** NorthernMan54 (`https://github.com/NorthernMan54/homebridge-warmup4ie`)
-**This fork:** `https://github.com/nookied/homebridge-warmup4ie` (origin), `NorthernMan54/...` (upstream)
-**License:** Apache-2.0
-**Current version:** 0.1.2 (npm `homebridge-warmup4ie`)
+**Repo:** `https://github.com/nookied/homebridge-warmup4ie` — **maintained fork**, published to npm under a distinct name
+**Original (abandoned reference):** [NorthernMan54/homebridge-warmup4ie](https://github.com/NorthernMan54/homebridge-warmup4ie) — broke at 0.1.0 in Dec 2024 and never fixed; do not pull from or push to it
+**License:** Apache-2.0 (preserved from original; LICENSE file added in 2.0.0)
+**Current version:** 2.0.0 (first release of the fork; tribute to the original v1 lineage)
 **Engines:** Homebridge `^1.6.0 || ^2.0.0-beta.0`, Node `^18.20.4 || ^20.15.1 || ^22.0.0`
+
+### Fork rules
+
+- This is a **maintained fork published to npm under a distinct name** (`homebridge-warmup4ie-v2`). The original (`homebridge-warmup4ie`) is unaffected.
+- The HomeKit *platform identifier* in users' `config.json` stays `"platform": "warmup4ie"` for migration compatibility — only the npm package name differs.
+- The `upstream` git remote is **intentionally not configured**. Do not re-add it. Do not open PRs against `NorthernMan54/homebridge-warmup4ie`.
+- CI runs lint + tests + smoke on Node 18/20/22 for every push (`.github/workflows/ci.yml`). Releases are tag-driven: `npm version patch|minor|major && git push --follow-tags` triggers `release.yml`, which publishes to npm with provenance and creates a GitHub Release.
 
 The plugin authenticates against the my.warmup.com cloud (`https://api.warmup.com/apps/app/v1`), enumerates rooms in the first location on the account, and creates one HomeKit Thermostat (+ a paired air-temperature `TemperatureSensor`) per room. Transport is native Node ≥18 `fetch` (no third-party HTTP client).
 
@@ -46,10 +53,6 @@ homebridge-warmup4ie/
 ├── test/hbConfig/                   Sandbox Homebridge config used by `npm run watch`
 │   ├── config.json                  Mock platform config (creds redacted to XXX...)
 │   └── auth.json                    homebridge-config-ui-x default auth
-│
-├── .github/workflows/Build and Publish.yml
-│                                    NPM publish on push to `beta-*.*.*`/`beta` (beta tag),
-│                                    or manual workflow_dispatch from `main` (latest tag)
 │
 ├── eslint.config.mjs                ESLint v9 flat config (commonjs, jest plugin)
 ├── package.json                     v0.1.2, scripts: lint / test / watch
@@ -140,27 +143,44 @@ DEBUG=HAP-NodeJS*,warmup4ie* ~/npm/bin/homebridge -U ./test/hbConfig -I -Q -T -D
 
 It expects a global `homebridge` install at `~/npm/bin/homebridge`. Edit `test/hbConfig/config.json` with real credentials before running (and don't commit them — `test/hbConfig/config.json` is in `.gitignore`, but the check-in copy at HEAD has placeholder values).
 
-## CI / Release
+## Release / install
 
-`.github/workflows/Build and Publish.yml` runs on:
-- `push` to branches matching `beta-*.*.*` or `beta` → publishes to npm with the branch-prefix tag (e.g. `beta`) and dynamically bumps the version (`pre` + `pre_id`)
-- `workflow_dispatch` from `main` → publishes a production release using `homebridge/.github/.github/workflows/npm-publish.yml@latest`, then `softprops/action-gh-release@v1` creates the GitHub Release
+### Install (users)
 
-Steps before publish:
-1. `get_tags` — derive branch + npm dist-tag
-2. `create_documentation` — runs `npm run-script document --if-present` (no `document` script today, so this is a no-op) and commits any TOC change as `github-actions[bot]`
+```bash
+# from npm (recommended)
+sudo npm install -g homebridge-warmup4ie-v2
+sudo systemctl restart homebridge
 
-Required GitHub secrets: `NPM_TOKEN`.
+# or straight from git (pin to a specific SHA)
+sudo npm install -g github:nookied/homebridge-warmup4ie#<sha>
+```
+
+### Release (maintainer)
+
+1. Run `npm run lint && npm test` (offline + integration must be green).
+2. Run live tests: `WARMUP_LIVE_TEST=1 WARMUP_USERNAME=… WARMUP_PASSWORD=… npm test`.
+3. Walk through the manual checklist in `QA_TESTS.md` on a real Homebridge host.
+4. Update `CHANGELOG.md` with the new version's entry (date, sections).
+5. `npm version patch|minor|major` — bumps `package.json` and creates a `vX.Y.Z` git tag.
+6. `git push --follow-tags` — pushes the commit + tag.
+7. CI's `release.yml` (triggered by the tag) lints, tests, smokes, then `npm publish --provenance` using `NPM_TOKEN`, then creates a GitHub Release.
+
+### CI / secrets
+
+- `.github/workflows/ci.yml` — lint + test + smoke on Node 18.20 / 20.15 / 22, every push and PR.
+- `.github/workflows/release.yml` — tag-driven (`v*`) publish + Release.
+- Required GitHub secret: `NPM_TOKEN` (npm automation token tied to the maintainer's npm account, with publish access to `homebridge-warmup4ie-v2`).
 
 ## Versioning
 
-Pre-1.0 (current): `0.MINOR.PATCH`. The most recent prod release was 0.1.1 / "HB 2.0" (Dec 2024). Beta channel uses `homebridge/.github` reusable workflow with `dynamically_adjust_version: true` to suffix `-beta.N`.
+This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From there it follows [SemVer](https://semver.org/):
 
 | Bump | When |
 |------|------|
-| **0.X.0** (minor) | New API support, new HomeKit service, breaking change to config |
-| **0.X.Y** (patch) | Bug fix, dependency bump, doc-only change |
-| **1.0.0** | Reserved for the first release that addresses the "Known issues" below — duplicate polling, deprecated `request`, broken tests |
+| **MAJOR** (`X.0.0`) | Breaking change to config keys or HomeKit accessory shape |
+| **MINOR** (`X.Y.0`) | New feature (multi-location, new HomeKit service, etc.) |
+| **PATCH** (`X.Y.Z`) | Bug fix, dependency bump, doc-only change |
 
 ## Known issues / tech debt
 
@@ -186,10 +206,12 @@ Pre-1.0 (current): `0.MINOR.PATCH`. The most recent prod release was 0.1.1 / "HB
 
 ## Working rules (for this repo)
 
-1. **Don't change the wire protocol without testing live.** The Warmup API is unofficial and returns errors as 200s with embedded error fields; mocked tests can't catch breaking changes.
+1. **Don't change the wire protocol without testing live.** The Warmup API is unofficial and returns errors as 200s with embedded error fields; offline mocks can't catch real-server drift. Run `WARMUP_LIVE_TEST=1 npm test` before tagging a release.
 2. **Prefer minimum-diff fixes.** Most of the open tech debt has been there for years — don't refactor end-to-end while fixing a one-line bug.
 3. **Touch the README and this file together** when adding/changing config keys.
-4. **Use the beta release channel** for anything that touches HomeKit characteristics or polling cadence — easier to revert via npm dist-tag than via Homebridge install paths.
+4. **Walk `QA_TESTS.md` before tagging a release.** Offline tests + live tests catch code-side regressions; the manual checklist catches wire-format drift on the *Warmup* side and HomeKit-integration issues mocks can't see.
+5. **Never re-add an `upstream` remote pointing at NorthernMan54.** This fork is intentionally isolated.
+6. **Tag matches `package.json` version.** The release workflow asserts this; `npm version` does it for you.
 
 ## Quick reference
 
@@ -200,21 +222,31 @@ Pre-1.0 (current): `0.MINOR.PATCH`. The most recent prod release was 0.1.1 / "HB
 | Change wire-level API behaviour | `src/lib/warmup4ie.js` |
 | Run locally with debug | `DEBUG=warmup4ie* npm run watch` |
 | See what's been released | `CHANGELOG.md` |
-| Trigger a beta release | Push to a branch named `beta` or `beta-X.Y.Z` |
-| Trigger a prod release | `gh workflow run "Build, Publish and Release"` from `main` |
+| Cut a release | `npm version patch \|\| minor \|\| major && git push --follow-tags` |
+| Pre-release manual QA | `QA_TESTS.md` |
+| Run live API tests | `WARMUP_LIVE_TEST=1 WARMUP_USERNAME=… WARMUP_PASSWORD=… npm test` |
+| Update the Homebridge host | `sudo npm install -g homebridge-warmup4ie-v2 && sudo systemctl restart homebridge` |
 
 ## File reference
 
-| File | Purpose | Lines |
-|------|---------|-------|
-| `src/index.js` | Homebridge platform + accessory | 219 |
-| `src/lib/warmup4ie.js` | Warmup cloud API client (native fetch) | 200 |
-| `src/lib/warmup4ie.test.js` | Jest tests (3 offline + 2 skipped live) | 115 |
-| `test/hbConfig/config.json` | Sandbox Homebridge config for `npm run watch` | — |
-| `.github/workflows/Build and Publish.yml` | npm publish + GitHub release | — |
-| `eslint.config.mjs` | ESLint v9 flat config | — |
-| `package.json` | Package metadata, scripts, deps | — |
-| `README.md` | Upstream usage README | — |
-| `CHANGELOG.md` | Release history | — |
-| `AGENTS.md` | Pointer to this file | — |
-| `CLAUDE.md` | This file — project memory for Claude Code | — |
+| File | Purpose |
+|------|---------|
+| `src/index.js` | Homebridge platform + accessory |
+| `src/lib/warmup4ie.js` | Warmup cloud API client (native fetch) |
+| `src/lib/state.js` | Pure HeatingCoolingState derivers (testable in isolation) |
+| `test/unit/*.test.js` | Wire-format builders, state derivers, until-format, _fetch error paths |
+| `test/integration/*.test.js` | Bootstrap chain, polling, error recovery, plugin loadtime |
+| `test/live/api.test.js` | Opt-in live API tests (gated by `WARMUP_LIVE_TEST=1`) |
+| `test/fixtures/*.json` | Sanitized API response samples |
+| `test/helpers.js` | Shared test utilities (fetch stub, response builder, fixture loader) |
+| `test/hbConfig/config.json` | Sandbox Homebridge config for `npm run watch` |
+| `.github/workflows/ci.yml` | Lint + test + smoke on Node 18/20/22, every push + PR |
+| `.github/workflows/release.yml` | Tag-driven npm publish + GitHub Release |
+| `eslint.config.mjs` | ESLint v9 flat config |
+| `package.json` | Package metadata, scripts, deps |
+| `LICENSE` | Apache-2.0 (added in 2.0.0) |
+| `README.md` | User-facing docs (install, config, migration) |
+| `QA_TESTS.md` | Manual pre-release checklist |
+| `CHANGELOG.md` | Release history (Keep a Changelog) |
+| `AGENTS.md` | Pointer to this file |
+| `CLAUDE.md` | This file — project memory for Claude Code |
