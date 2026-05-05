@@ -12,7 +12,7 @@ This file is the canonical persistent memory for this project. Any assistant/age
 **Repo:** [`https://github.com/nookied/homebridge-warmup4ie-v2`](https://github.com/nookied/homebridge-warmup4ie-v2) — **maintained fork**, published to npm under a distinct name
 **Original (abandoned reference):** [NorthernMan54/homebridge-warmup4ie](https://github.com/NorthernMan54/homebridge-warmup4ie) — broke at 0.1.0 in Dec 2024 and never fixed; do not pull from or push to it
 **License:** Apache-2.0 (preserved from original; LICENSE file added in 2.0.0)
-**Current version:** **3.8.0** (post-handoff validation pass — Eve graph FLOAT fix + bootstrap-failure HAP guards + Apple Home grouping + doc polish; published 2026-05-05; **handoff release**). Major v3 milestones: 3.0 GraphQL + per-room Off, 3.1 dynamic platform / Verified-eligible, 3.2 fakegato history, 3.3 sensor faults + runMode polish, 3.4 real heating signal + offline detection + override countdown, 3.5 Eve energy graphs + device firmware, 3.6 Vacation/Frost switches, 3.7 child lock, 3.8 validation polish. Unreleased changes (if any) on `main` — check `git log v3.8.0..main`.
+**Current version:** **3.8.0** (post-handoff validation pass — Eve graph FLOAT fix + bootstrap-failure HAP guards + Apple Home grouping + doc polish; published 2026-05-05; **handoff release**). Major v3 milestones: 3.0 GraphQL + per-room Off, 3.1 dynamic platform / Verified-eligible, 3.2 fakegato history, 3.3 sensor faults + runMode polish, 3.4 real heating signal + offline detection + override countdown, 3.5 Eve energy graphs + device firmware, 3.6 Vacation/Frost switches, 3.7 child lock, 3.8 validation polish. Unreleased changes on `main`: post-review fixes for debounced target-temperature writes, stale location-mode switch cleanup, live-test runMode coverage, metadata-helper testability, and lockfile version drift.
 **Engines:** Homebridge `^1.6.0 || ^2.0.0`; Node `^18.20.4 || ^20.15.1 || ^22.0.0 || ^24.0.0`
 
 ### Fork rules
@@ -66,9 +66,12 @@ homebridge-warmup4ie-v2/
 │       │   ├── setTargetTemperature(id, value)        GraphQL deviceOverride(lid, rid, temp×10, minutes)
 │       │   └── normalizeRoom(r)                       Flattens GraphQL Room+Thermostat4iE into platform shape
 │       │
-│       └── state.js                          Pure HeatingCoolingState derivers (no HAP types)
-│           ├── deriveCurrentHeatingState(room)
-│           └── deriveTargetHeatingState(room)
+│       ├── state.js                          Pure HeatingCoolingState derivers (no HAP types)
+│       │   ├── deriveCurrentHeatingState(room)
+│       │   └── deriveTargetHeatingState(room)
+│       └── metadata.js                       Pure HomeKit metadata/energy derivers
+│           ├── deriveFirmwareRevision(room, fallback)
+│           └── deriveTotalConsumption(room)
 │
 ├── test/
 │   ├── unit/
@@ -112,7 +115,7 @@ homebridge-warmup4ie-v2/
 ## How it runs
 
 1. Homebridge calls `module.exports(homebridge)` → captures HAP types + `platformAccessory` ctor + `uuid` → `registerPlatform("homebridge-warmup4ie-v2", "warmup4ie", warmup4iePlatform, true)` (4th arg = dynamic).
-2. Homebridge instantiates `warmup4iePlatform(log, config, api)`. The constructor reads + clamps config, sets up `this.accessories: Map<UUID, PlatformAccessory>` and `this._debouncers: Map<UUID, Map<char, Timeout>>`, and registers `api.on('didFinishLaunching', () => discoverDevices())` plus `api.on('shutdown', () => shutdown())`.
+2. Homebridge instantiates `warmup4iePlatform(log, config, api)`. The constructor reads + clamps config, sets up `this.accessories: Map<UUID, PlatformAccessory>` and `this._debouncers: Map<UUID, Map<char, PendingDebounce>>`, and registers `api.on('didFinishLaunching', () => discoverDevices())` plus `api.on('shutdown', () => shutdown())`.
 3. For each accessory in Homebridge's on-disk cache, `configureAccessory(accessory)` is called synchronously — we stash it in `this.accessories` keyed by UUID. Service handlers are NOT bound here (we don't yet know if Warmup still has the room).
 4. After all `configureAccessory` calls, `didFinishLaunching` fires → `discoverDevices()` constructs `new Warmup4IE(this, cb)`. The lib's `_bootstrap` runs `_login` (REST userLogin → token) → `_fetchRooms` (GraphQL `user.owned[].rooms` → normalize → fill `this.room[]`). The token is stored on the instance (`this._token`) and rides as the `warmup-authorization` header on every GraphQL request.
 5. `reconcileAccessories(rooms)` diffs live rooms vs `this.accessories`:
@@ -138,7 +141,7 @@ Two endpoints. REST is used **only** for login; GraphQL handles everything else.
 
 Temperatures from the GraphQL API are integers in tenths of °C on `Room` (`195` = 19.5 °C); on `Thermostat4iE.airTemp/floor1Temp/floor2Temp` they are **strings** in tenths (`"195"`). `normalizeRoom` flattens both shapes; `index.js` divides by 10 before passing to HomeKit and multiplies by 10 on the way out.
 
-`runMode` enum (per schema): `not_set | off | schedule | override | fixed | anti_frost | holiday | fil_pilote | gradual | relay | previous`. `state.js` handles `off | schedule | fixed | override` explicitly; everything else defaults to HEAT (1) for `TargetHeatingCoolingState`. Edge-case modes (`anti_frost`, `holiday`) are unsurfaced — see Roadmap M6.
+`runMode` enum (per schema): `not_set | off | schedule | override | fixed | anti_frost | holiday | fil_pilote | gradual | relay | previous`. `src/lib/state.js` maps `off | holiday | anti_frost` to OFF (0), `fixed | override` to HEAT (1), `schedule | gradual` to AUTO (3), and falls back to HEAT for rare/unknown modes (`not_set`, `fil_pilote`, `relay`, `previous`). Current heating state uses Warmup's real relay/output signal when available, with the old temperature-delta inference only as a fallback.
 
 ## HomeKit mapping
 
@@ -246,9 +249,8 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 
 ### Open
 1. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `deviceSN` today, but the plugin does not yet fetch/use enough reliable per-model metadata for all supported devices. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
-2. **No HomeKit Switches for Holiday / Frost mode.** Quick toggles for vacation mode would need new GraphQL mutations (`deviceHoliday`, `setModes locMode:"frost"`). Roadmap **M6**.
-3. **No `deviceAdvanced` integration** — child lock, brightness, sensor offsets all live behind the `deviceAdvanced` mutation. Roadmap **M6**.
-4. **`room.cost` not surfaced.** Available in `normalizeRoom`, no HomeKit/Eve home for it (Eve has no standard cost characteristic). Could add as a custom characteristic if a user asks.
+2. **Partial `deviceAdvanced` integration only** — child lock is surfaced, but display brightness and sensor offsets are still intentionally deferred. Roadmap **M6**.
+3. **`room.cost` not surfaced.** Available in `normalizeRoom`, no HomeKit/Eve home for it (Eve has no standard cost characteristic). Could add as a custom characteristic if a user asks.
 
 ### Resolved
 - **v2.0:** restored `setRoomOff` body (regression in upstream 0.1.0); restored local-time `until` (regression in 0.1.0); native fetch (deprecated `request` removed); full test suite; CI; LICENSE; rebrand as `homebridge-warmup4ie-v2`.
@@ -304,6 +306,7 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 | `src/index.js` | Homebridge platform + accessory class |
 | `src/lib/warmup4ie.js` | Warmup cloud API client (REST login, GraphQL everything else) |
 | `src/lib/state.js` | Pure HeatingCoolingState derivers (testable in isolation) |
+| `src/lib/metadata.js` | Pure firmware-revision and Eve total-consumption derivers |
 | `test/unit/_fetch.test.js` | Generic fetch + REST + GraphQL transport + token-error pattern |
 | `test/unit/wire-format.test.js` | GraphQL mutation + variables shape assertions |
 | `test/unit/state-derivers.test.js` | Truth tables for the two heating-state derivers |

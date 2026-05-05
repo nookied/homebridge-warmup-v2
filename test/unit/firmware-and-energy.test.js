@@ -1,24 +1,9 @@
 /* eslint-env jest */
 
-// `deriveFirmwareRevision` and `deriveTotalConsumption` are non-exported
-// helpers in src/index.js. We test them by re-deriving the same logic here
-// against the same inputs — keeps the helpers pure and the tests at the
-// public-behaviour boundary. If the helper logic changes, this test catches
-// the divergence; if the helper signature changes, the test fails compile.
+// Pure helper tests for HomeKit metadata values. Import the shipped helper
+// module directly so the test fails if production logic drifts.
 
-// Direct re-implementations matching src/index.js. Update both together.
-
-const SEMVER_LIKE = /^\d{1,9}(\.\d{1,9}){0,2}$/;
-function deriveFirmwareRevision(room, fallback) {
-  const fw = room && room.appFw && String(room.appFw).trim();
-  if (fw && SEMVER_LIKE.test(fw)) return fw;
-  return fallback;
-}
-function deriveTotalConsumption(room) {
-  const total = Number(room && room.total);
-  if (!Number.isFinite(total) || total < 0) return 0;
-  return Math.round(total * 1000) / 1000;
-}
+const { deriveFirmwareRevision, deriveTotalConsumption } = require('../../src/lib/metadata');
 
 describe('deriveFirmwareRevision', () => {
   test('valid SemVer-ish appFw is used directly', () => {

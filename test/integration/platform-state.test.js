@@ -394,6 +394,35 @@ describe('warmup4ie dynamic platform', () => {
     platformTwo.shutdown();
   });
 
+  test('target temperature debounce resolves every caller and sends only the latest value', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    const thermo = accessory.getService(api.hap.Service.Thermostat);
+    const targetTemp = thermo.getCharacteristic('TargetTemperature');
+
+    const first = targetTemp._invokeSet(20);
+    const second = targetTemp._invokeSet(21.5);
+
+    jest.advanceTimersByTime(300);
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+
+    expect(clients[0].setTargetTemperature).toHaveBeenCalledTimes(1);
+    expect(clients[0].setTargetTemperature).toHaveBeenCalledWith(100001, 21.5);
+
+    platform.shutdown();
+    jest.useRealTimers();
+  });
+
   test('StatusFault: NO_FAULT for a healthy room, GENERAL_FAULT when any sensor flag is set', async () => {
     const platform = new PlatformCtor(
       fakeLog(), { username: 'one@example.com', password: 'p' }, api
@@ -599,6 +628,27 @@ describe('warmup4ie dynamic platform', () => {
     expect(api.calls.unregister).toContain(stale);
     expect(platform.accessories.has('UUID(warmup4ie:vacation:12345)')).toBe(true);
     expect(platform.accessories.has('UUID(warmup4ie:frost:12345)')).toBe(true);
+
+    platform.shutdown();
+  });
+
+  test('location-mode switches from an old locId are unregistered', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    const oldVacation = new FakePlatformAccessory('Vacation Mode', 'UUID(warmup4ie:vacation:999)');
+    oldVacation.context.kind = 'vacation';
+    oldVacation.context.locId = 999;
+    platform.configureAccessory(oldVacation);
+
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.calls.unregister).toContain(oldVacation);
+    expect(platform.accessories.has('UUID(warmup4ie:vacation:999)')).toBe(false);
+    expect(platform.accessories.has('UUID(warmup4ie:vacation:12345)')).toBe(true);
 
     platform.shutdown();
   });

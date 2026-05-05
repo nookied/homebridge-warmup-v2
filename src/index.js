@@ -17,6 +17,7 @@
 const debug = require('debug')('warmup4ie');
 const { Warmup4IE } = require('./lib/warmup4ie');
 const { deriveCurrentHeatingState, deriveTargetHeatingState } = require('./lib/state');
+const { deriveFirmwareRevision, deriveTotalConsumption } = require('./lib/metadata');
 const { version: PLUGIN_VERSION, name: PLUGIN_NAME } = require('../package.json');
 
 const PLATFORM_NAME = 'warmup4ie';
@@ -107,7 +108,7 @@ function warmup4iePlatform(log, config = {}, api) {
   // Map<UUID, PlatformAccessory> — populated by configureAccessory at startup
   // (cached) and by discoverDevices (live). Both old + new entries live here.
   this.accessories = new Map();
-  // Map<UUID, Map<char-name, NodeJS.Timeout>> — per-accessory debounce timers.
+  // Map<UUID, Map<char-name, PendingDebounce>> — per-accessory debounce state.
   this._debouncers = new Map();
   this._pollTimer = null;
 
@@ -223,6 +224,7 @@ warmup4iePlatform.prototype = {
     const locId = this.thermostats && this.thermostats._locId;
     if (locId == null) return;
 
+    removeStaleLocationAccessories(this, locId);
     LOCATION_SWITCHES.forEach((spec) => {
       ensureLocationSwitch(this, locId, spec);
     });
@@ -250,7 +252,13 @@ warmup4iePlatform.prototype = {
     // Cancel any pending debounce timers — they hold references to the
     // accessory and would otherwise fire after Homebridge has shut down.
     for (const perAcc of this._debouncers.values()) {
-      for (const timer of perAcc.values()) clearTimeout(timer);
+      for (const pending of perAcc.values()) {
+        const timer = pending && typeof pending === 'object' ? pending.timer : pending;
+        if (timer) clearTimeout(timer);
+        if (pending && typeof pending.reject === 'function') {
+          pending.reject(notReadyError());
+        }
+      }
     }
     this._debouncers.clear();
   }
@@ -276,7 +284,7 @@ function attachAccessoryServices(platform, accessory, room) {
     .setCharacteristic(Characteristic.SerialNumber, `warmup4ie-${room.roomId}`)
     // Real device firmware from `appFw` when valid (HAP requires
     // `N{1,9}(.N{1,9}){0,2}` SemVer-ish); falls back to plugin version.
-    .setCharacteristic(Characteristic.FirmwareRevision, deriveFirmwareRevision(room));
+    .setCharacteristic(Characteristic.FirmwareRevision, deriveFirmwareRevision(room, PLUGIN_VERSION));
 
   // TemperatureSensor — the air-temp probe.
   // Set the service Name only on first add so we don't overwrite a user's
@@ -479,21 +487,33 @@ function handleTargetTemperatureSet(platform, accessory, value) {
   // Trailing-edge debounce per accessory + characteristic.
   const debouncers = getDebouncers(platform, accessory);
   const existing = debouncers.get('targetTemp');
-  if (existing) clearTimeout(existing);
+  if (existing) {
+    clearTimeout(existing.timer);
+    existing.value = value;
+    existing.timer = setTimeout(() => flushTargetTemperatureSet(platform, accessory, debouncers, existing), SLIDER_DEBOUNCE_MS);
+    return existing.promise;
+  }
 
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(async () => {
-      debouncers.delete('targetTemp');
-      try {
-        await platform.thermostats.setTargetTemperature(accessory.context.roomId, value);
-        resolve();
-      } catch (err) {
-        platform.log.error('Set TargetTemperature for %s failed: %s', accessory.displayName, err.message);
-        reject(asHapStatusError(err));
-      }
-    }, SLIDER_DEBOUNCE_MS);
-    debouncers.set('targetTemp', timer);
+  const pending = { value, timer: null, promise: null, resolve: null, reject: null };
+  pending.promise = new Promise((resolve, reject) => {
+    pending.resolve = resolve;
+    pending.reject = reject;
   });
+  pending.timer = setTimeout(() => flushTargetTemperatureSet(platform, accessory, debouncers, pending), SLIDER_DEBOUNCE_MS);
+  debouncers.set('targetTemp', pending);
+  return pending.promise;
+}
+
+async function flushTargetTemperatureSet(platform, accessory, debouncers, pending) {
+  if (debouncers.get('targetTemp') !== pending) return;
+  debouncers.delete('targetTemp');
+  try {
+    await platform.thermostats.setTargetTemperature(accessory.context.roomId, pending.value);
+    pending.resolve();
+  } catch (err) {
+    platform.log.error('Set TargetTemperature for %s failed: %s', accessory.displayName, err.message);
+    pending.reject(asHapStatusError(err));
+  }
 }
 
 async function handleChildLockSet(platform, accessory, value) {
@@ -613,6 +633,23 @@ function ensureLocationSwitch(platform, locId, spec) {
   }
 }
 
+function removeStaleLocationAccessories(platform, currentLocId) {
+  const stale = [];
+  for (const [accUuid, accessory] of platform.accessories) {
+    if (!isLocationAccessory(accessory)) continue;
+    if (String(accessory.context.locId) === String(currentLocId)) continue;
+
+    platform.log.info('Removing stale location accessory: %s', accessory.displayName);
+    stale.push(accessory);
+    platform.accessories.delete(accUuid);
+    platform._debouncers.delete(accUuid);
+  }
+
+  if (stale.length) {
+    platform.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, stale);
+  }
+}
+
 async function handleLocationSwitchSet(platform, spec, value) {
   platform.log.debug('Set %s → %s', spec.displayName, value);
   if (!platform.thermostats) throw notReadyError();
@@ -690,28 +727,6 @@ function deriveStatusActive(room) {
 // minutes; convert. Defaults to 0 when no override active.
 function deriveRemainingDuration(room) {
   return Math.max(0, Math.round(((room.overrideDur || 0) * 60)));
-}
-
-// HAP requires FirmwareRevision to look like 1, 1.2, or 1.2.3 (each segment
-// up to 9 digits) — anything else fails validation and the accessory may
-// fail to publish. Warmup's `appFw` is "29.175"-ish in practice; validate
-// before using, fall back to plugin version on anything weird.
-const SEMVER_LIKE = /^\d{1,9}(\.\d{1,9}){0,2}$/;
-function deriveFirmwareRevision(room) {
-  const fw = room && room.appFw && String(room.appFw).trim();
-  if (fw && SEMVER_LIKE.test(fw)) return fw;
-  return PLUGIN_VERSION;
-}
-
-// Eve.Energy.TotalConsumption: cumulative kWh, monotonically increasing.
-// Warmup's `total` is the closest match (`energy` is today-only and resets
-// daily, which would make Eve's graph look bizarre). FLOAT (kWh fractional);
-// defensive cast in case the API ever returns a string. Round to 3 decimals
-// to drop FP noise without losing useful precision.
-function deriveTotalConsumption(room) {
-  const total = Number(room && room.total);
-  if (!Number.isFinite(total) || total < 0) return 0;
-  return Math.round(total * 1000) / 1000;
 }
 
 function uuidForRoom(roomId) {

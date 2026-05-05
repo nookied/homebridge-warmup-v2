@@ -7,6 +7,29 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **Debounced target-temperature writes now settle every HomeKit caller.**
+  Multiple slider updates inside the 300 ms debounce window share one pending
+  promise and send only the latest temperature to Warmup, avoiding stale
+  HomeKit writes hanging until HAP times out.
+- **Stale Vacation/Frost location switches are removed when the active
+  Warmup location changes.** Cached synthetic switches for an old `locId` no
+  longer linger in HomeKit after an account/location change.
+- **Live API tests now accept the full Warmup `runMode` enum**, including
+  `holiday`, `anti_frost`, and `gradual`.
+
+### Internal
+
+- **Firmware/energy derivation helpers moved to `src/lib/metadata.js`** so
+  tests exercise production code directly instead of duplicating helper logic.
+- **`package-lock.json` root version refreshed to 3.8.0** to match
+  `package.json`.
+
+---
+
 ## [3.8.0] — 2026-05-05
 
 Final validation pass before handoff — quality, robustness and

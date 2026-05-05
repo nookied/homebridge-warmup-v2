@@ -20,6 +20,19 @@ const liveOn = process.env.WARMUP_LIVE_TEST === '1' &&
                process.env.WARMUP_USERNAME &&
                process.env.WARMUP_PASSWORD;
 const liveDescribe = liveOn ? describe : describe.skip;
+const WARMUP_RUN_MODES = [
+  'not_set',
+  'off',
+  'schedule',
+  'override',
+  'fixed',
+  'anti_frost',
+  'holiday',
+  'fil_pilote',
+  'gradual',
+  'relay',
+  'previous'
+];
 
 liveDescribe('Warmup4IE — live API', () => {
   let client;
@@ -38,7 +51,7 @@ liveDescribe('Warmup4IE — live API', () => {
         rooms.forEach((room) => {
           expect(typeof room.roomId).toBe('number');
           expect(typeof room.roomName).toBe('string');
-          expect(['off', 'fixed', 'override', 'schedule']).toContain(room.runMode);
+          expect(WARMUP_RUN_MODES).toContain(room.runMode);
         });
         resolve(c);
       });

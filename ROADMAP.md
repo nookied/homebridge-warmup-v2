@@ -23,7 +23,7 @@ Everything else is incremental polish on top of those three.
 
 ✅ GraphQL transport, per-room hard-off, explicit override duration in minutes, native fetch transport, token refresh, surfaced HAP errors, debounced HomeKit writes, config UI schema, full offline test suite, opt-in live tests, CI on Node 18/20/22/24, tag-driven npm publish with provenance, Apache-2.0 LICENSE, README + CHANGELOG + QA_TESTS, fork-isolated from upstream.
 
-⚠️ Static accessory platform, no HomeKit energy/cost history, single-location, generic model metadata, and current-heating state still inferred from `currentTemp < targetTemp` instead of Warmup's relay/output signal.
+⚠️ Single-location operation, generic model metadata, and no surfaced cost history remain. Heating state now prefers Warmup's relay/output signal with temperature-delta inference only as a fallback.
 
 ---
 
