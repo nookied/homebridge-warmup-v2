@@ -303,17 +303,9 @@ function attachAccessoryServices(platform, accessory, room) {
     // `N{1,9}(.N{1,9}){0,2}` SemVer-ish); falls back to plugin version.
     .setCharacteristic(Characteristic.FirmwareRevision, deriveFirmwareRevision(room, PLUGIN_VERSION));
 
-  // TemperatureSensor — the air-temp probe.
-  // Set the service Name only on first add so we don't overwrite a user's
-  // rename in Apple Home on subsequent restarts.
-  let tempService = accessory.getService(Service.TemperatureSensor);
-  if (!tempService) {
-    tempService = accessory.addService(Service.TemperatureSensor, `${room.roomName} Air`);
-  }
-  tempService.getCharacteristic(Characteristic.CurrentTemperature)
-    .setProps({ minValue: -100, maxValue: 100 });
-
-  // Thermostat (primary).
+  // Thermostat (primary). Added before the TemperatureSensor so iOS Home
+  // honours service insertion order in the accessory detail view — the
+  // thermostat tile renders to the left of the air sensor instead of after it.
   let thermo = accessory.getService(Service.Thermostat);
   if (!thermo) {
     thermo = accessory.addService(Service.Thermostat, room.roomName);
@@ -323,6 +315,16 @@ function attachAccessoryServices(platform, accessory, room) {
   } else {
     thermo.isPrimaryService = true;
   }
+
+  // TemperatureSensor — the air-temp probe.
+  // Set the service Name only on first add so we don't overwrite a user's
+  // rename in Apple Home on subsequent restarts.
+  let tempService = accessory.getService(Service.TemperatureSensor);
+  if (!tempService) {
+    tempService = accessory.addService(Service.TemperatureSensor, `${room.roomName} Air`);
+  }
+  tempService.getCharacteristic(Characteristic.CurrentTemperature)
+    .setProps({ minValue: -100, maxValue: 100 });
 
   thermo.getCharacteristic(Characteristic.TargetHeatingCoolingState)
     .setProps({ validValues: [0, 1, 3] })

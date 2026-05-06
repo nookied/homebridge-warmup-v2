@@ -7,6 +7,31 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.10.1] — 2026-05-06
+
+Tiny UX tweak. The `Service.Thermostat` is now added to the accessory
+*before* the paired `Service.TemperatureSensor`, so Apple Home honours
+service insertion order in the accessory detail view — the thermostat
+tile renders to the left of the air sensor instead of after it. The
+Thermostat was already marked the primary service (and renders larger
+either way), but the left-of-sensor placement matches what users expect
+from a thermostat-first accessory.
+
+### Changed
+
+- `attachAccessoryServices` adds the Thermostat before the TemperatureSensor.
+
+### Caveat for existing users
+
+Cached accessories already have their services persisted in the original
+order and `getService` retrieves them as-is — the swap only affects
+newly-created accessories. To pick up the new order on an existing
+setup, reset the plugin's cached accessory in the Homebridge UI
+(Settings → Remove Single Cached Accessory) so the rooms get
+re-discovered fresh. Fresh installs benefit automatically.
+
+---
+
 ## [3.10.0] — 2026-05-06
 
 Three new opt-out feature toggles for the optional HomeKit accessories
