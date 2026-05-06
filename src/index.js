@@ -118,6 +118,15 @@ function warmup4iePlatform(log, config = {}, api) {
   this.disableChildLock = Boolean(config.disableChildLock);
   this.disableVacationSwitch = Boolean(config.disableVacationSwitch);
   this.disableFrostSwitch = Boolean(config.disableFrostSwitch);
+  // When enabled, the standalone `Service.TemperatureSensor` (the "<name>
+  // Air" tile) is not created — the air-temp reading is still surfaced
+  // via the Thermostat's `CurrentTemperature` characteristic, which is
+  // what most users actually want. Recommended when the device runs in
+  // air-sensor mode (Thermostat.CurrentTemperature already equals the
+  // air reading); leave disabled if the device runs in floor-sensor
+  // mode (Thermostat.CurrentTemperature is the floor reading then, and
+  // the standalone air-temp tile is the only way to see air temp).
+  this.disableAirSensor = Boolean(config.disableAirSensor);
 
   // Runtime state — persists for the lifetime of this platform instance only.
   this.thermostats = null;
@@ -317,27 +326,37 @@ function attachAccessoryServices(platform, accessory, room) {
   }
 
   // TemperatureSensor — the air-temp probe.
-  // Set the service Name only on first add so we don't overwrite a user's
-  // rename in Apple Home on subsequent restarts.
-  let tempService = accessory.getService(Service.TemperatureSensor);
-  if (!tempService) {
-    tempService = accessory.addService(Service.TemperatureSensor, `${room.roomName} Air`);
-  }
-  tempService.getCharacteristic(Characteristic.CurrentTemperature)
-    .setProps({ minValue: -100, maxValue: 100 });
-  // v3.10.3 linked the air sensor under the thermostat via
-  // `thermo.addLinkedService(tempService)` to nest it as a sub-component
-  // in Apple Home. v3.10.4 reverts that — real-device testing showed iOS
-  // Home then refused to rename the accessory ("Could not change
-  // settings"), apparently because the link altered the accessory shape
-  // post-pairing in a way the Home app dislikes. We actively unlink any
-  // previously-added link so cached accessories from v3.10.3 get cleaned
-  // up on next save, not just newly-attached ones.
-  if (typeof thermo.removeLinkedService === 'function') {
-    thermo.removeLinkedService(tempService);
-  } else if (Array.isArray(thermo.linkedServices)) {
-    const idx = thermo.linkedServices.indexOf(tempService);
-    if (idx >= 0) thermo.linkedServices.splice(idx, 1);
+  // Skipped when `disableAirSensor` is set; the air reading is still on
+  // the Thermostat's CurrentTemperature characteristic, so this only
+  // hides the redundant "<name> Air" tile in HomeKit. Any previously-
+  // attached TemperatureSensor on a cached accessory is removed so the
+  // Home tile disappears on next reconcile.
+  if (platform.disableAirSensor) {
+    const existingTemp = accessory.getService(Service.TemperatureSensor);
+    if (existingTemp) {
+      // Unlink before removing in case a v3.10.3 accessory still has the
+      // legacy link in its persisted state — leaves no dangling refs.
+      unlinkTempFromThermo(thermo, existingTemp);
+      accessory.removeService(existingTemp);
+    }
+  } else {
+    // Set the service Name only on first add so we don't overwrite a user's
+    // rename in Apple Home on subsequent restarts.
+    let tempService = accessory.getService(Service.TemperatureSensor);
+    if (!tempService) {
+      tempService = accessory.addService(Service.TemperatureSensor, `${room.roomName} Air`);
+    }
+    tempService.getCharacteristic(Characteristic.CurrentTemperature)
+      .setProps({ minValue: -100, maxValue: 100 });
+    // v3.10.3 linked the air sensor under the thermostat via
+    // `thermo.addLinkedService(tempService)` to nest it as a sub-component
+    // in Apple Home. v3.10.4 reverts that — real-device testing showed iOS
+    // Home then refused to rename the accessory ("Could not change
+    // settings"), apparently because the link altered the accessory shape
+    // post-pairing in a way the Home app dislikes. We actively unlink any
+    // previously-added link so cached accessories from v3.10.3 get cleaned
+    // up on next save, not just newly-attached ones.
+    unlinkTempFromThermo(thermo, tempService);
   }
 
   thermo.getCharacteristic(Characteristic.TargetHeatingCoolingState)
@@ -429,8 +448,11 @@ function updateAccessoryState(platform, room) {
 
 function pushRoomState(accessory, room) {
   const thermo = accessory.getService(Service.Thermostat);
+  // `temp` is optional — when `disableAirSensor` is set, the standalone
+  // TemperatureSensor service is intentionally absent. Treat its writes
+  // as no-ops in that case rather than early-returning the whole push.
   const temp = accessory.getService(Service.TemperatureSensor);
-  if (!thermo || !temp) return;
+  if (!thermo) return;
 
   const currentTempC = Number(room.currentTemp / 10);
   const setTempC = Number(effectiveTargetTemp(room) / 10);
@@ -478,8 +500,10 @@ function pushRoomState(accessory, room) {
     );
   }
 
-  temp.getCharacteristic(Characteristic.CurrentTemperature)
-    .updateValue(Number(room.airTemp / 10));
+  if (temp) {
+    temp.getCharacteristic(Characteristic.CurrentTemperature)
+      .updateValue(Number(room.airTemp / 10));
+  }
 
   // Record a history entry for Eve. valvePosition is synthesized — Warmup
   // doesn't expose actual valve % via the cloud API, so we use the heating
@@ -757,6 +781,21 @@ function hasRequiredConfig(platform) {
 // characteristic's [minTemp, maxTemp] range, so clamp.
 function effectiveTargetTemp(room) {
   return room.targetTemp > room.minTemp ? room.targetTemp : room.minTemp;
+}
+
+// Remove a v3.10.3-era thermo→tempService link if the cached accessory
+// still carries it, with a defensive fallback for HAP-NodeJS versions
+// that don't expose `removeLinkedService`. Used both when keeping the
+// air sensor (to drop the broken link) and when removing the air
+// sensor entirely (to avoid dangling refs in `linkedServices`).
+function unlinkTempFromThermo(thermo, tempService) {
+  if (!thermo || !tempService) return;
+  if (typeof thermo.removeLinkedService === 'function') {
+    thermo.removeLinkedService(tempService);
+  } else if (Array.isArray(thermo.linkedServices)) {
+    const idx = thermo.linkedServices.indexOf(tempService);
+    if (idx >= 0) thermo.linkedServices.splice(idx, 1);
+  }
 }
 
 // HAP StatusFault: NO_FAULT (0) | GENERAL_FAULT (1). Surfaces sensor

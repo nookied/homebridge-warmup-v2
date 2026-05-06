@@ -7,6 +7,58 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.11.0] — 2026-05-06
+
+Adds the **`disableAirSensor`** opt-out toggle, the actual fix for the
+"thermostat-first tile" UX request that drove the v3.10.1–v3.10.4
+churn. Each room exposes a paired `Service.TemperatureSensor` (the
+"<name> Air" tile) on top of the Thermostat by default — useful for
+devices in floor-sensor mode where the Thermostat's `CurrentTemperature`
+reports floor temp and the standalone tile is the only way to see air
+temp; redundant for devices in air-sensor mode where both readings are
+the same. Setting `"disableAirSensor": true` hides the standalone tile,
+which also gets the Apple Home accessory detail view down to a single
+Thermostat tile (plus the optional Lock sub-component) instead of the
+two-tile sibling layout that iOS Home renders for paired services.
+
+The `addLinkedService` approach we attempted in v3.10.3 broke
+accessory rename in iOS Home (see v3.10.3/v3.10.4 entries below), so
+this is the path we settled on.
+
+### Added
+
+- **`disableAirSensor`** (default `false`) — hides the per-thermostat
+  `Service.TemperatureSensor`. Cached air-sensor services are
+  unlinked from the parent Thermostat and removed on next launch (the
+  unlink prevents a dangling reference in `thermo.linkedServices` for
+  v3.10.3-era accessories).
+- Surfaced in `config.schema.json` so the toggle shows up in the
+  Homebridge UI form-based config editor.
+
+### Internal
+
+- `attachAccessoryServices` gates the TemperatureSensor block on
+  `platform.disableAirSensor` (mirroring the `disableChildLock`
+  pattern from v3.10.0).
+- `pushRoomState` no longer early-returns when `temp` is undefined —
+  the Thermostat side is updated unconditionally and the
+  TemperatureSensor write is now guarded behind an existence check.
+- New `unlinkTempFromThermo(thermo, tempService)` helper at the
+  bottom of `src/index.js` consolidates the v3.10.3-link cleanup
+  logic (defensive `removeLinkedService` with a `linkedServices`
+  array splice fallback) so the same cleanup runs on both the
+  "keep the air sensor, just drop the link" and the "remove the
+  air sensor entirely, drop the link too" paths.
+- New tests in `platform-state.test.js` (+2): `disableAirSensor`
+  skips creation; `disableAirSensor` removes a cached
+  TemperatureSensor and unlinks any v3.10.3-era link before
+  removal. 127 offline tests pass (up from 125 in v3.10.4).
+- `config.schema.json` GitHub URLs updated to the renamed repo
+  (`nookied/homebridge-warmup-v2`) — last few stragglers from the
+  v3.10.2 rename.
+
+---
+
 ## [3.10.4] — 2026-05-06
 
 Regression rollback. v3.10.3 linked the `TemperatureSensor` as a child

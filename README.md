@@ -80,6 +80,7 @@ Add a platform entry to your Homebridge `config.json`:
 | `disableChildLock` | no | `false` | Hide the per-thermostat **Lock** tile. Useful when the model doesn't honour the lock command (Warmup Element Wi-Fi appears to ignore it). Removes any cached lock services on next launch. |
 | `disableVacationSwitch` | no | `false` | Hide the location-wide **Vacation Mode** switch. Removes the cached accessory on next launch. |
 | `disableFrostSwitch` | no | `false` | Hide the location-wide **Frost Protection** switch. Removes the cached accessory on next launch. |
+| `disableAirSensor` | no | `false` | Hide the standalone **"Air"** temperature-sensor tile. The air reading is still on the Thermostat's CurrentTemperature characteristic, so this just removes the redundant second tile for users in air-sensor mode. Leave disabled if your device runs in floor-sensor mode (then the Thermostat reports floor temp and the air tile is the only place to see air temp). Removes any cached air-sensor services on next launch. |
 
 ## Recommended: enable Child Bridge
 

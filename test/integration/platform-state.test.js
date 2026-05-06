@@ -46,7 +46,17 @@ function makeService(type, name) {
       return ensureCharacteristic(characteristics, charType);
     },
     setPrimaryService: jest.fn(),
-    isPrimaryService: false
+    isPrimaryService: false,
+    // Mirrors HAP-NodeJS's Service.linkedServices array so disable-flag
+    // tests can verify the unlink-before-remove path.
+    linkedServices: [],
+    addLinkedService: function (svc) {
+      if (!this.linkedServices.includes(svc)) this.linkedServices.push(svc);
+    },
+    removeLinkedService: function (svc) {
+      const idx = this.linkedServices.indexOf(svc);
+      if (idx >= 0) this.linkedServices.splice(idx, 1);
+    }
   };
 }
 
@@ -810,6 +820,55 @@ describe('warmup4ie dynamic platform', () => {
     expect(api.calls.unregister).toContain(cachedFrost);
     expect(platform.accessories.has('UUID(warmup4ie:frost:12345)')).toBe(false);
     expect(platform.accessories.has('UUID(warmup4ie:vacation:12345)')).toBe(true);
+
+    platform.shutdown();
+  });
+
+  test('disableAirSensor: skips TemperatureSensor creation', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'one@example.com', password: 'p', disableAirSensor: true },
+      api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    expect(accessory.getService(api.hap.Service.TemperatureSensor)).toBeUndefined();
+    // Thermostat is still present — only the standalone air-sensor tile is hidden.
+    expect(accessory.getService(api.hap.Service.Thermostat)).toBeDefined();
+
+    platform.shutdown();
+  });
+
+  test('disableAirSensor: removes TemperatureSensor from a previously-cached accessory', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'one@example.com', password: 'p', disableAirSensor: true },
+      api
+    );
+    // Pre-populate a cached accessory that already has a TemperatureSensor
+    // service (i.e. a v3.x user upgrading and turning the option on for
+    // the first time). Also stash a v3.10.3-era link so we exercise the
+    // unlink-before-remove path that prevents a dangling reference in
+    // `thermo.linkedServices` after the service is gone.
+    const cached = new FakePlatformAccessory('User One', 'UUID(warmup4ie:100001)');
+    const cachedThermo = cached.addService(api.hap.Service.Thermostat, 'User One');
+    const cachedTemp = cached.addService(api.hap.Service.TemperatureSensor, 'User One Air');
+    cachedThermo.addLinkedService(cachedTemp);
+    expect(cachedThermo.linkedServices).toContain(cachedTemp);
+    platform.configureAccessory(cached);
+
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(cached.getService(api.hap.Service.TemperatureSensor)).toBeUndefined();
+    // No dangling link to the now-removed service.
+    expect(cachedThermo.linkedServices).not.toContain(cachedTemp);
 
     platform.shutdown();
   });

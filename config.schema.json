@@ -3,7 +3,7 @@
   "pluginType": "platform",
   "singular": true,
   "headerDisplay": "Homebridge plugin for **Warmup Wi-Fi underfloor-heating thermostats** — 4iE, 6iE, 7iE Smart Matter, Element Wi-Fi, Terra Wi-Fi, and rebadged OEM units. Maintained fork of `homebridge-warmup4ie`.",
-  "footerDisplay": "Need help? See the [README](https://github.com/nookied/homebridge-warmup4ie-v2#readme) or [open an issue](https://github.com/nookied/homebridge-warmup4ie-v2/issues).",
+  "footerDisplay": "Need help? See the [README](https://github.com/nookied/homebridge-warmup-v2#readme) or [open an issue](https://github.com/nookied/homebridge-warmup-v2/issues).",
   "schema": {
     "type": "object",
     "required": ["name", "username", "password"],
@@ -61,6 +61,12 @@
         "type": "boolean",
         "default": false,
         "description": "Hides the location-wide Frost Protection HomeKit switch. Cached accessory is removed on next launch."
+      },
+      "disableAirSensor": {
+        "title": "Hide standalone air-temp sensor",
+        "type": "boolean",
+        "default": false,
+        "description": "Hides the standalone 'Air' temperature-sensor tile. The air reading is still surfaced via the Thermostat's CurrentTemperature characteristic, so for users in air-sensor mode this just removes a redundant tile. Leave disabled if your device runs in floor-sensor mode (Thermostat then reports floor temp and the air tile is the only way to see air temp). Cached air-sensor services are removed on next launch."
       }
     }
   }
