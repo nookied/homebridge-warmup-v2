@@ -7,6 +7,29 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.10.3] — 2026-05-06
+
+Follow-up to v3.10.2 after real-device testing showed iOS Home doesn't
+order accessory detail-view tiles by service insertion order — Apple's
+Home app applies its own rendering rules, so the v3.10.2 swap was a
+no-op visually. v3.10.3 takes a different approach: the
+TemperatureSensor service is now linked as a child of the Thermostat
+via `Service.addLinkedService`, the same pattern already used for the
+child-lock service. Apple Home renders linked services as nested
+sub-components of their parent rather than as independent siblings,
+which is the actual behaviour users expect from a thermostat-with-air-
+probe accessory.
+
+### Changed
+
+- `attachAccessoryServices` calls
+  `thermo.addLinkedService(tempService)` after creating the
+  TemperatureSensor so iOS Home groups it under the Thermostat tile.
+  `addLinkedService` is idempotent, so cached accessories pick up the
+  link on next restart without needing a cache reset (unlike v3.10.2).
+
+---
+
 ## [3.10.2] — 2026-05-06
 
 Republish of v3.10.1 under a new version after a sigstore-provenance

@@ -325,6 +325,13 @@ function attachAccessoryServices(platform, accessory, room) {
   }
   tempService.getCharacteristic(Characteristic.CurrentTemperature)
     .setProps({ minValue: -100, maxValue: 100 });
+  // Link the air sensor under the thermostat in Apple Home so it renders
+  // as a nested sub-component of the thermostat tile rather than a sibling
+  // tile that Apple lays out independently. Same pattern we use for the
+  // lock below; `addLinkedService` is idempotent — safe on cached accessories.
+  if (typeof thermo.addLinkedService === 'function') {
+    thermo.addLinkedService(tempService);
+  }
 
   thermo.getCharacteristic(Characteristic.TargetHeatingCoolingState)
     .setProps({ validValues: [0, 1, 3] })
