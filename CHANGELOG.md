@@ -7,6 +7,43 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.10.4] — 2026-05-06
+
+Regression rollback. v3.10.3 linked the `TemperatureSensor` as a child
+of the `Thermostat` via `Service.addLinkedService` to get Apple Home
+to render the air sensor as a nested sub-component of the thermostat
+tile. Real-device testing surfaced a side effect: **iOS Home then
+refused to rename the accessory** ("Could not change settings" alert
+when editing the accessory's name field in Settings). Apparently
+adding a linked service after pairing alters the accessory shape in a
+way the Home app dislikes for rename writes. The lock service has
+been linked the same way since v3.7 without this issue, so the
+trigger is specifically the post-pairing addition of the link, not
+linked services in general.
+
+### Fixed
+
+- `attachAccessoryServices` no longer calls
+  `thermo.addLinkedService(tempService)`. Existing cached accessories
+  carrying the link from v3.10.3 are actively unlinked at runtime via
+  `thermo.removeLinkedService(tempService)` (with a defensive fallback
+  that splices `thermo.linkedServices` directly if the older HAP-NodeJS
+  doesn't expose `removeLinkedService`). Homebridge persists the
+  cleaned state on next shutdown, so users don't need a second cache
+  reset.
+
+### Caveat (back to v3.10.2 behaviour)
+
+iOS Home is back to rendering the `TemperatureSensor` as a sibling
+tile next to the `Thermostat` in the accessory detail view. The
+v3.10.2 service-insertion-order tweak is still in place but, as we
+confirmed via testing, it has no visible effect — Apple Home
+applies its own layout rules. The right path for a "thermostat-only"
+look is a `disableAirSensor` opt-out toggle (next on the list); see
+ROADMAP.
+
+---
+
 ## [3.10.3] — 2026-05-06
 
 Follow-up to v3.10.2 after real-device testing showed iOS Home doesn't

@@ -325,12 +325,19 @@ function attachAccessoryServices(platform, accessory, room) {
   }
   tempService.getCharacteristic(Characteristic.CurrentTemperature)
     .setProps({ minValue: -100, maxValue: 100 });
-  // Link the air sensor under the thermostat in Apple Home so it renders
-  // as a nested sub-component of the thermostat tile rather than a sibling
-  // tile that Apple lays out independently. Same pattern we use for the
-  // lock below; `addLinkedService` is idempotent — safe on cached accessories.
-  if (typeof thermo.addLinkedService === 'function') {
-    thermo.addLinkedService(tempService);
+  // v3.10.3 linked the air sensor under the thermostat via
+  // `thermo.addLinkedService(tempService)` to nest it as a sub-component
+  // in Apple Home. v3.10.4 reverts that — real-device testing showed iOS
+  // Home then refused to rename the accessory ("Could not change
+  // settings"), apparently because the link altered the accessory shape
+  // post-pairing in a way the Home app dislikes. We actively unlink any
+  // previously-added link so cached accessories from v3.10.3 get cleaned
+  // up on next save, not just newly-attached ones.
+  if (typeof thermo.removeLinkedService === 'function') {
+    thermo.removeLinkedService(tempService);
+  } else if (Array.isArray(thermo.linkedServices)) {
+    const idx = thermo.linkedServices.indexOf(tempService);
+    if (idx >= 0) thermo.linkedServices.splice(idx, 1);
   }
 
   thermo.getCharacteristic(Characteristic.TargetHeatingCoolingState)
