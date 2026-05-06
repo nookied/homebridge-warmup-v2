@@ -7,28 +7,49 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
-## [3.10.1] — 2026-05-06
+## [3.10.2] — 2026-05-06
 
-Tiny UX tweak. The `Service.Thermostat` is now added to the accessory
-*before* the paired `Service.TemperatureSensor`, so Apple Home honours
-service insertion order in the accessory detail view — the thermostat
-tile renders to the left of the air sensor instead of after it. The
-Thermostat was already marked the primary service (and renders larger
-either way), but the left-of-sensor placement matches what users expect
-from a thermostat-first accessory.
+Republish of v3.10.1 under a new version after a sigstore-provenance
+publish failure. The GitHub repo had been renamed
+`homebridge-warmup4ie-v2` → `homebridge-warmup-v2` between the v3.10.0
+release (May 5) and the v3.10.1 push, but `package.json#repository.url`
+still pointed at the old URL — npm rejected the publish with HTTP 422
+(`Failed to validate repository information`). Same code as v3.10.1
+(see Changed/Caveat below); v3.10.1 exists as a git tag but never made
+it onto npm. The npm package name (`homebridge-warmup4ie-v2`) is
+unchanged.
 
-### Changed
+### Fixed
 
-- `attachAccessoryServices` adds the Thermostat before the TemperatureSensor.
+- `package.json#repository.url`, `bugs.url`, and `homepage` updated to
+  match the renamed GitHub repo (`homebridge-warmup-v2`).
+- README + CLAUDE.md GitHub URL references updated for consistency.
+
+### Changed (carried over from v3.10.1)
+
+- `attachAccessoryServices` adds the Thermostat before the
+  TemperatureSensor so iOS Home honours service insertion order in the
+  accessory detail view — the thermostat tile renders to the left of
+  the air sensor instead of after it. The Thermostat was already marked
+  primary (and renders larger either way); this is purely a placement
+  fix that matches what users expect from a thermostat-first accessory.
 
 ### Caveat for existing users
 
-Cached accessories already have their services persisted in the original
-order and `getService` retrieves them as-is — the swap only affects
-newly-created accessories. To pick up the new order on an existing
-setup, reset the plugin's cached accessory in the Homebridge UI
-(Settings → Remove Single Cached Accessory) so the rooms get
+Cached accessories already have their services persisted in the
+original order and `getService` retrieves them as-is — the swap only
+affects newly-created accessories. To pick up the new order on an
+existing setup, reset the plugin's cached accessory in the Homebridge
+UI (Settings → Remove Single Cached Accessory) so the rooms get
 re-discovered fresh. Fresh installs benefit automatically.
+
+---
+
+## [3.10.1] — 2026-05-06 (failed to publish)
+
+Tagged but never published to npm — `package.json#repository.url`
+mismatched the renamed GitHub repo, so npm's sigstore provenance check
+returned HTTP 422. Content shipped under v3.10.2 instead.
 
 ---
 

@@ -47,7 +47,7 @@ Or via the Homebridge UI: search for **homebridge-warmup4ie-v2** in the plugin b
 To install straight from git instead of npm (e.g. to pin a specific commit):
 
 ```bash
-sudo npm install -g github:nookied/homebridge-warmup4ie-v2#<sha>
+sudo npm install -g github:nookied/homebridge-warmup-v2#<sha>
 ```
 
 ## Configuration
@@ -167,8 +167,8 @@ sudo journalctl -u homebridge -f
 ## Development
 
 ```bash
-git clone https://github.com/nookied/homebridge-warmup4ie-v2.git
-cd homebridge-warmup4ie-v2
+git clone https://github.com/nookied/homebridge-warmup-v2.git
+cd homebridge-warmup-v2
 npm install
 npm run lint                  # ESLint
 npm test                      # Jest — unit + integration (no network)
