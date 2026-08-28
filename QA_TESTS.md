@@ -42,7 +42,7 @@ sudo journalctl -u homebridge -f --since '1 minute ago'
 Open the iOS Home app:
 
 - [ ] All N thermostat tiles appear in the room they were assigned to
-- [ ] Each tile shows current temperature within ±0.5 °C of the physical thermostat display
+- [ ] Each tile shows current temperature within ±0.5 °C of the value on the physical thermostat display (that display shows **ambient temperature**; the *setpoint* is only visible in the Warmup app)
 - [ ] Each tile shows the correct target temperature
 - [ ] Tap a tile to open it: target/current temperatures, mode buttons all visible
 - [ ] The paired `<name> Air` temperature sensor shows the air-temp probe value
@@ -50,12 +50,16 @@ Open the iOS Home app:
 
 ## 3. Control — single room (do these for ONE room first)
 
+> **Setpoints are not visible on the device.** The physical thermostat
+> displays ambient room temperature; the target only appears in the Warmup
+> app. Verify every setpoint change there, not on the wall unit.
+>
 > **Successful control actions log nothing.** `Set TargetTemperature` /
 > `Set HeatingCoolingState` / `Set ChildLock` are emitted at `debug` level, so
 > they are invisible unless Homebridge debug mode is on. Only *failures* log,
-> at `error` level. So for this section the pass signal is **the physical
-> device matching + no new error lines** — do not go hunting for confirmation
-> lines that were never going to appear.
+> at `error` level. So for this section the pass signal is **the Warmup app
+> (or the device, for Off) reflecting the change + no new error lines** — do
+> not go hunting for confirmation lines that were never going to appear.
 
 
 - [ ] **Drag target temperature slider** → Warmup app shows "Override" active for `duration` minutes
@@ -95,7 +99,7 @@ prove. Each is written so a failure is unambiguous.
 - [ ] **Room removed without a restart** — delete that room again in the MyHeating app. Within one interval: `Removing stale accessory: <name>`, and the tile disappears.
 - [ ] **No log/disk churn when nothing changes** — leave it idle for 5+ minutes. `Warmup room list changed` must appear **only** when you actually add or remove a room. Repeated occurrences mean the change detection is misfiring and Homebridge is rewriting its accessory cache every poll.
 - [ ] **Renaming still behaves as before** — rename a room in the Home app. It must *not* be reverted on the next poll (only on restart, as in previous versions). Reversion within a minute means the change detection is wrongly treating names as identity.
-- [ ] **Rapid successive setpoint changes land in order** — set 20 °C, wait ~2 s, set 24 °C, wait for the poll. The thermostat and the Warmup app must both end at **24 °C**. Ending at 20 °C is the write-ordering race returning.
+- [ ] **Rapid successive setpoint changes land in order** — set 20 °C, wait ~2 s, set 24 °C, wait for the poll. **Read the setpoint in the Warmup app, not off the thermostat** (the device display shows ambient room temperature, not the target). It must end at **24 °C**; ending at 20 °C is the write-ordering race returning. Note this failure is *silent* — both writes succeed and nothing is logged — so the app reading is the only signal.
 - [ ] **`disableHistory` saves memory** — note Homebridge's RSS (`systemctl status homebridge`, or the Homebridge UI status page). Set `"disableHistory": true`, restart, compare. Expect roughly **100 MB lower** for this plugin's process. Then confirm every thermostat tile still reads and controls normally — only Eve.app graphs should be gone.
 - [ ] **Eve history still works with the default** — set `disableHistory` back to `false`, restart, open Eve.app, and confirm the temperature history graph is still populating. This is the path the lazy load could plausibly break.
 - [ ] **Uncommissioned room** *(only if you can make one)* — create a room in the MyHeating app but pair no thermostat to it. The tile should appear as **not responding / inactive** rather than showing a plausible-looking idle thermostat, and must not log HAP "illegal value" warnings.
@@ -150,10 +154,18 @@ running in a child bridge. 6 rooms. Released SHA `3c5e97f`.
   `ReferenceError`, unhandled rejection, or HAP `illegal value`.
 - Control (§3): **Off/On** confirmed against the physical thermostat.
   **27 °C setpoint** applied and matched.
+- **Write-ordering (§5b): passed.** 20 °C then 24 °C in quick succession
+  ended at 24 °C, read from the Warmup app; no errors. This exercises
+  `enqueueAccessoryWrite`, the serialization added in this release — the
+  fix for a race that would otherwise have left the device on the older
+  setpoint silently. Note the readout came from the Warmup app: the wall
+  unit displays ambient temperature and never shows the target, so it
+  cannot be used to verify a setpoint.
 - Implicit confirmation of the v3.12.0 temperature-normalization rewrite:
   HomeKit rejects setpoints outside `TargetTemperature`'s
   `minValue`/`maxValue`, so 27 °C being accepted and applied proves
   `minTemp`/`maxTemp` normalized to a sane range from real device data.
+
 **Weak evidence — do not treat as passed**
 
 - No `Warmup room list changed` line appeared, which is what a stable 6-room
@@ -167,8 +179,6 @@ running in a child bridge. 6 rooms. Released SHA `3c5e97f`.
 - **Live API test** (`WARMUP_LIVE_TEST=1`). No credentials were available in
   the session that cut the release. **v3.12.0 shipped to npm without it.**
   Run it before the next release at the latest.
-- **Write-ordering** (§5b): set 20 °C, wait ~2 s, set 24 °C, confirm the
-  device ends at 24. This is the one materially untested new fix.
 - Live room add/remove, `disableHistory` memory saving, Eve history on the
   default path, the decoded bad-password message, §2 Home-app visual smoke.
 
