@@ -7,11 +7,21 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
-## [3.12.0] — unreleased
+## [3.12.0] — 2026-08-28
 
-Maintenance release out of a full repo health pass. No config keys change
-and no HomeKit accessory shape changes; the version is MINOR rather than
-PATCH because the supported Node range moves.
+Maintenance release out of a full repo health pass, followed by an
+adversarial review of the result. MINOR rather than PATCH because the
+supported Node range moves and one new config key is added.
+
+Existing configs need no edits: the new `disableHistory` key is optional and
+defaults to today's behaviour, and no HomeKit accessory shape changes. The
+one thing to know before upgrading is the Node requirement — **Node 18 and
+20 are no longer supported.**
+
+Most of what follows was found by two review passes rather than by bug
+reports, so the user-visible symptoms are ones you may never have noticed:
+readings quietly invented from missing data, a setpoint change silently lost
+to a write race, and rooms that needed a Homebridge restart to appear.
 
 ### Changed
 

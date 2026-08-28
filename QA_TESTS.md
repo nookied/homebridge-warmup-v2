@@ -77,6 +77,21 @@ These are bugs that broke previous versions. Verify they stay fixed:
 - [ ] **API errors surface to HomeKit** as "Not Responding" — to test, edit `config.json` to use bad credentials, restart, observe "Not Responding" tiles
 - [ ] **Per-room Off works** *(v3.0 unlock; was location-wide in v2)* — see section 4
 
+## 5b. New in v3.12.0 (verify once, then fold the keepers into section 5)
+
+Everything here is new behaviour or a fix that offline tests cannot fully
+prove. Each is written so a failure is unambiguous.
+
+- [ ] **Bad-password error is readable** — set a deliberately wrong password in `config.json`, restart, and check the log. Expect `Warmup API: invalid email or password (errorCode 101)`. A bare `Warmup API: {"result":"error"}` means the decoding regressed. Restore the correct password afterwards.
+- [ ] **Room added without a restart** — with Homebridge running, create a new room in the MyHeating app. Within one `refresh` interval (default 60 s) the log should show `Warmup room list changed — reconciling accessories` and `Adding <name>`, and the tile should appear in the Home app. **No restart.**
+- [ ] **Room removed without a restart** — delete that room again in the MyHeating app. Within one interval: `Removing stale accessory: <name>`, and the tile disappears.
+- [ ] **No log/disk churn when nothing changes** — leave it idle for 5+ minutes. `Warmup room list changed` must appear **only** when you actually add or remove a room. Repeated occurrences mean the change detection is misfiring and Homebridge is rewriting its accessory cache every poll.
+- [ ] **Renaming still behaves as before** — rename a room in the Home app. It must *not* be reverted on the next poll (only on restart, as in previous versions). Reversion within a minute means the change detection is wrongly treating names as identity.
+- [ ] **Rapid successive setpoint changes land in order** — set 20 °C, wait ~2 s, set 24 °C, wait for the poll. The thermostat and the Warmup app must both end at **24 °C**. Ending at 20 °C is the write-ordering race returning.
+- [ ] **`disableHistory` saves memory** — note Homebridge's RSS (`systemctl status homebridge`, or the Homebridge UI status page). Set `"disableHistory": true`, restart, compare. Expect roughly **100 MB lower** for this plugin's process. Then confirm every thermostat tile still reads and controls normally — only Eve.app graphs should be gone.
+- [ ] **Eve history still works with the default** — set `disableHistory` back to `false`, restart, open Eve.app, and confirm the temperature history graph is still populating. This is the path the lazy load could plausibly break.
+- [ ] **Uncommissioned room** *(only if you can make one)* — create a room in the MyHeating app but pair no thermostat to it. The tile should appear as **not responding / inactive** rather than showing a plausible-looking idle thermostat, and must not log HAP "illegal value" warnings.
+
 ## 6. Edge cases
 
 - [ ] **Internet drop**: disable internet on the Homebridge host for 2 minutes, observe `Warmup network error` log lines (no crash, no zombie callbacks). Re-enable; next poll succeeds, tiles update.
