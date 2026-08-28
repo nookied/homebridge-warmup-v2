@@ -20,7 +20,7 @@ This file is the canonical persistent memory for this project. Any assistant/age
 - This is a **maintained fork published to npm under a distinct name** (`homebridge-warmup4ie-v2`). The original (`homebridge-warmup4ie`) is unaffected and still on npm at 0.1.1.
 - The HomeKit *platform identifier* in users' `config.json` stays `"platform": "warmup4ie"` for migration compatibility — only the npm package name differs.
 - The `upstream` git remote is **intentionally not configured**. Do not re-add it. Do not open PRs against `NorthernMan54/homebridge-warmup4ie`.
-- CI runs lint + tests + smoke on Node 18/20/22/24 for every push (`.github/workflows/ci.yml`). Releases are tag-driven: `npm version patch|minor|major && git push --follow-tags` triggers `release.yml`, which publishes to npm with provenance and creates a GitHub Release.
+- CI runs lint + tests + smoke on Node 22/24/26 for every push (`.github/workflows/ci.yml`). Releases are tag-driven: `npm version patch|minor|major && git push --follow-tags` triggers `release.yml`, which publishes to npm with provenance and creates a GitHub Release.
 - **`package.json` `repository.url` MUST exactly match the GitHub repo URL** (`https://github.com/nookied/homebridge-warmup-v2.git`). npm's sigstore provenance is strict — a mismatch causes `npm publish` to fail with HTTP 422. We hit this twice during repo renames — see CHANGELOG entries for v2.0.x and v3.10.2.
 
 ### What it does
@@ -40,13 +40,14 @@ homebridge-warmup4ie-v2/
 │   │   │   ├── configureAccessory(cached)        Stash cached PlatformAccessory in this.accessories Map
 │   │   │   ├── discoverDevices()                 Login + fetch rooms → reconcileAccessories
 │   │   │   ├── reconcileAccessories(rooms)       Diff live vs cached → register/unregister/update deltas
-│   │   │   ├── startPolling()                    setInterval(getStatus + updateAccessoryState per room)
+│   │   │   ├── startPolling()                    setInterval(getStatus + reconcile-if-changed + push per room)
 │   │   │   └── shutdown()                        Clear poll timer + pending debouncers (api 'shutdown' event)
 │   │   ├── attachAccessoryServices(p, acc, room) Idempotent service setup (Information/Thermostat/TemperatureSensor)
 │   │   ├── pushRoomState(acc, room)              Updates HAP characteristics from a room snapshot
 │   │   ├── updateAccessoryState(p, room)         Looks up acc by UUID, refreshes context.room + pushRoomState
 │   │   ├── handleTargetHeatingCoolingSet         .onSet handler — Off/Heat/Auto switching
 │   │   ├── handleTargetTemperatureSet            .onSet handler — debounced (300 ms trailing edge)
+│   │   ├── roomSetChanged(p, rooms)             Cheap add/remove check that gates a poll-tick reconcile
 │   │   ├── enqueueAccessoryWrite(p, acc, task)   Serializes cloud writes per accessory (ordering)
 │   │   ├── updateIfFinite(svc, char, value)      Skips NaN/Infinity writes — HAP rejects them
 │   │   ├── toCelsius(tenths)                     tenths → °C; null → NaN so the write is skipped
@@ -281,7 +282,7 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 - **v3.12.0 (maintenance pass):** Node range raised to `^22 || ^24 || ^26` (18/20 EOL, 26 missing) + CI matrix to match; login failures decode `response.errorCode` instead of logging `Warmup API: {"result":"error"}`; rooms with `thermostat4ies: []` no longer push `NaN` into HAP (defaults in `normalizeRoom` + finite-guards at every characteristic write); `npm audit` clean; eslint 8 (EOL) → 9 and `/* eslint-env jest */` directives dropped; `graphql.owned.json` refreshed to the current payload after going three releases stale. See the 3.12.0 changelog entry for the full reasoning.
 - **v3.12.0 (adversarial pass):** every temperature normalized through `tenths()` to a Number-or-`null`, because **`Number(null)` is `0`, not `NaN`** — a nullable field coming back null was rendering in HomeKit as a real 0 °C (and a null `targetTemp` as 5 °C, via the minTemp clamp); `deriveTotalConsumption` returns `null` instead of `0` for unknown, so one null poll can't collapse Eve's *cumulative* graph to the origin; new `hasThermostat` flag stops an uncommissioned room reporting HEAT and ACTIVE; **per-accessory writes serialized** via `enqueueAccessoryWrite` — the debounce entry was deleted before its request was awaited, so two writes could be in flight and land out of order, leaving the device on the older setpoint with no error (reproduced: asked 22 °C, got 20 °C); `pushLocationSwitchStates` null-deref closed.
 
-5. **Discovery runs at bootstrap only.** `discoverDevices()` is wired to `didFinishLaunching` and nothing else; the poll loop calls `updateAccessoryState`, which returns early for any room it has no accessory for. So a room *added* in the MyHeating app does not appear in HomeKit until Homebridge restarts (removals are likewise only reconciled at boot). Fixing it means calling `reconcileAccessories` from the poll tick — cheap in code, but it makes every poll capable of registering/unregistering HomeKit accessories, so it wants live testing before shipping. Noted in the v3.12.0 adversarial pass; not attempted.
+
 
 ### By design (won't fix)
 - **First location only.** `_fetchRooms` takes `user.owned[0]`. If you have multiple Warmup locations on one account (e.g. primary residence + holiday home), only the first one is exposed. To expose a second location, run a second Homebridge child bridge with another account. A `location: "name"` config option to filter by name is feasible and would mirror the Python reference, but isn't planned.

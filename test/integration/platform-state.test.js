@@ -1050,6 +1050,85 @@ describe('warmup4ie dynamic platform', () => {
     platform.shutdown();
   });
 
+  // Rooms come and go in the MyHeating app while Homebridge is running.
+  // Before v3.12.0 discovery ran only at `didFinishLaunching`, so neither an
+  // addition nor a removal reached HomeKit until a restart.
+  describe('live room discovery from the poll tick', () => {
+    async function launched() {
+      const platform = new PlatformCtor(
+        fakeLog(), { username: 'one@example.com', password: 'p' }, api
+      );
+      api.emit('didFinishLaunching');
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      return platform;
+    }
+
+    async function tick(platform) {
+      jest.advanceTimersByTime(platform.refresh * 1000);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    beforeEach(() => jest.useFakeTimers({ doNotFake: ['queueMicrotask'] }));
+    afterEach(() => jest.useRealTimers());
+
+    test('a room added in the Warmup app is registered without a restart', async () => {
+      const platform = await launched();
+      expect(platform.accessories.has('UUID(warmup4ie:100002)')).toBe(false);
+
+      platform.thermostats.room[100002] = room(100002, 'New Room');
+      await tick(platform);
+
+      expect(platform.accessories.has('UUID(warmup4ie:100002)')).toBe(true);
+      expect(api.calls.register.some(
+        (c) => c.kind === 'accessories' &&
+          c.accessories.some((a) => a.UUID === 'UUID(warmup4ie:100002)')
+      )).toBe(true);
+    });
+
+    test('a room removed in the Warmup app is unregistered without a restart', async () => {
+      const platform = await launched();
+      platform.thermostats.room[100002] = room(100002, 'Doomed Room');
+      await tick(platform);
+      const doomed = platform.accessories.get('UUID(warmup4ie:100002)');
+      expect(doomed).toBeDefined();
+
+      delete platform.thermostats.room[100002];
+      await tick(platform);
+
+      expect(platform.accessories.has('UUID(warmup4ie:100002)')).toBe(false);
+      expect(api.calls.unregister).toContain(doomed);
+    });
+
+    test('an unchanged room set does not re-attach or rewrite the accessory cache', async () => {
+      const platform = await launched();
+      // Reconciling calls updatePlatformAccessories, which makes Homebridge
+      // rewrite its on-disk cache. On an unchanged room set that would be
+      // pure SD-card churn every `refresh` seconds, forever.
+      api.calls.update.length = 0;
+      await tick(platform);
+      await tick(platform);
+      expect(api.calls.update).toHaveLength(0);
+    });
+
+    test('a transient empty response does not tear out the cached rooms', async () => {
+      const platform = await launched();
+      const existing = platform.accessories.get('UUID(warmup4ie:100001)');
+      // getStatus returning [] is far more likely a Warmup hiccup than the
+      // user deleting every thermostat. reconcileAccessories has always
+      // guarded this; polling must not route around that guard.
+      platform.thermostats.room = [];
+      await tick(platform);
+
+      expect(platform.accessories.get('UUID(warmup4ie:100001)')).toBe(existing);
+      expect(api.calls.unregister).not.toContain(existing);
+    });
+  });
+
   test('shutdown: clears the poll timer and pending debouncers', async () => {
     const platform = new PlatformCtor(
       fakeLog(), { username: 'one@example.com', password: 'p' }, api

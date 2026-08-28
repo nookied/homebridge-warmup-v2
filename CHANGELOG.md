@@ -37,6 +37,30 @@ PATCH because the supported Node range moves.
   searchable either way. The legacy `status.code` location is read as well
   as the modern `response.errorCode`.
 
+### Added
+
+- **Rooms added or removed in the MyHeating app now reach HomeKit without a
+  Homebridge restart.** Discovery ran only at `didFinishLaunching`, and the
+  poll loop's `updateAccessoryState` returns early for any room it has no
+  accessory for — so a newly-created room stayed invisible, and a deleted one
+  stayed on the tile grid, until the next restart. The poll tick now
+  reconciles too.
+
+  It reconciles *only when the room set actually differs*, via a cheap
+  set-comparison: reconciling re-attaches every service and calls
+  `updatePlatformAccessories`, which makes Homebridge rewrite its on-disk
+  accessory cache — doing that every `refresh` seconds forever would be pure
+  SD-card churn on the Raspberry Pis most Homebridge installs run on.
+
+  The comparison is deliberately identity-only, never names. Reconciling
+  overwrites `displayName` from Warmup, so treating a rename as a change
+  would put the plugin in a poll-rate loop fighting any rename the user makes
+  in Apple Home. Renames still land on restart, exactly as before.
+
+  The existing "0 rooms is probably a Warmup hiccup, not a mass deletion"
+  guard in `reconcileAccessories` still applies, and is now covered by a test
+  that drives it through the polling path rather than only through bootstrap.
+
 ### Fixed
 
 - **Nullable fields no longer surface as invented readings.** Every
@@ -165,9 +189,11 @@ PATCH because the supported Node range moves.
   alive until it was force-killed, turning a clear one-line assertion
   failure into a hung suite with no output. Hit while verifying the
   write-ordering fix.
-- 140 offline tests pass (up from 127 in v3.11.0). Branch coverage
-  74.5% → 79.4% overall; `src/lib/warmup4ie.js` 81.1% → 91.4%;
-  `src/lib/state.js` and `src/lib/metadata.js` at 100%.
+- 144 offline tests pass (up from 127 in v3.11.0), including four that
+  drive room addition, room removal, the no-op path, and the empty-response
+  guard through the polling loop.  Branch coverage 74.5% → 80.5% overall;
+  `src/lib/warmup4ie.js` 81.1% → 91.4%; `src/lib/state.js` and
+  `src/lib/metadata.js` at 100%.
 
 ### Known, not addressed
 

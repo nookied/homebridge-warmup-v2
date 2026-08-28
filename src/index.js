@@ -267,6 +267,19 @@ warmup4iePlatform.prototype = {
       try {
         if (!this.thermostats) return;
         const rooms = await this.thermostats.getStatus();
+        // Rooms can be added or removed in the MyHeating app while Homebridge
+        // is running. Discovery used to run only at `didFinishLaunching`, so
+        // neither reached HomeKit until a restart.
+        //
+        // Only reconcile when the room set actually differs: reconciling
+        // re-attaches every service and calls `updatePlatformAccessories`,
+        // which makes Homebridge rewrite its on-disk accessory cache. Doing
+        // that on every tick would be constant disk churn on a Pi's SD card
+        // for no benefit.
+        if (roomSetChanged(this, rooms)) {
+          this.log.info('Warmup room list changed — reconciling accessories');
+          this.reconcileAccessories(rooms);
+        }
         rooms.forEach((room) => updateAccessoryState(this, room));
         pushLocationSwitchStates(this);
       } catch (err) {
@@ -631,6 +644,25 @@ async function handleChildLockSet(platform, accessory, value) {
     platform.log.error('Set ChildLock for %s failed: %s', accessory.displayName, err.message);
     throw asHapStatusError(err);
   }
+}
+
+// Has the set of rooms changed since the last reconcile? Compares live room
+// UUIDs against the room accessories we hold, ignoring the location-mode
+// switches (they are keyed by location, not room, and are managed separately).
+//
+// Deliberately compares identity only, not names: `reconcileAccessories`
+// overwrites `displayName` from Warmup, so treating a rename as a change
+// would let a poll-rate loop fight a user's rename in Apple Home every
+// `refresh` seconds. A rename still lands on the next restart, as before.
+function roomSetChanged(platform, rooms) {
+  const live = new Set(rooms.map((room) => uuidForRoom(room.roomId)));
+  let known = 0;
+  for (const [accUuid, accessory] of platform.accessories) {
+    if (isLocationAccessory(accessory)) continue;
+    if (!live.has(accUuid)) return true;  // a room went away
+    known++;
+  }
+  return known !== live.size;             // a room appeared
 }
 
 // Serialize the cloud writes belonging to one accessory.
