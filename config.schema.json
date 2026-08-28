@@ -12,21 +12,18 @@
         "title": "Name",
         "type": "string",
         "default": "WarmUP",
-        "required": true,
         "description": "The name shown in Homebridge logs."
       },
       "username": {
         "title": "my.warmup.com email",
         "type": "string",
         "format": "email",
-        "required": true,
         "placeholder": "you@example.com"
       },
       "password": {
         "title": "my.warmup.com password",
         "type": "string",
-        "format": "password",
-        "required": true
+        "format": "password"
       },
       "refresh": {
         "title": "Polling interval (seconds)",

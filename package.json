@@ -18,6 +18,7 @@
   },
   "keywords": [
     "homebridge-plugin",
+    "supports-hap",
     "homebridge-warmup4ie",
     "warmup4ie",
     "warmup",

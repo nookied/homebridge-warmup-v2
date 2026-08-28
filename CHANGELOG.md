@@ -12,6 +12,25 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 Reliability tuning driven by the v3.12.0 field logs. No config keys change,
 no HomeKit accessory shape change.
 
+### Fixed — Homebridge Verified automated checks
+
+Both raised by the verification bot on
+[homebridge/plugins#1195](https://github.com/homebridge/plugins/issues/1195),
+and both verified against our own files rather than taken on faith.
+
+- **`keywords` now declares `supports-hap`.** Homebridge requires every plugin
+  to declare its transport via `supports-hap` or `supports-matter`. Only
+  `supports-hap` applies: this plugin publishes HAP accessories through
+  Homebridge. The 7iE *Smart Matter* is a supported **device**, but that is
+  the thermostat speaking Matter to Warmup's own hub — the plugin exposes
+  nothing over Matter, so claiming `supports-matter` would be false.
+- **`config.schema.json` is now valid JSON Schema.** Three properties
+  (`name`, `username`, `password`) carried `"required": true`, which is not a
+  thing in JSON Schema — `required` is an array at the object level. The
+  correct array was already present and unchanged, so the booleans were pure
+  redundancy and removing them loses nothing. The Homebridge UI keeps marking
+  all three as required, from the array.
+
 ### Changed
 
 - **Request timeout raised from 10 s to 20 s.** The real-host logs behind the
