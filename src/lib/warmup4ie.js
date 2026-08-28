@@ -33,7 +33,18 @@ const REQUEST_HEADERS = {
   // future stricter validation.
   'x-request-type': 'GraphQL'
 };
-const REQUEST_TIMEOUT_MS = 10000;
+// Raised from 10 s in v3.12.1. Real-host logs showed seven
+// `aborted due to timeout` failures across three days — the Warmup cloud
+// occasionally takes longer than 10 s from a domestic connection, and each
+// timeout costs a whole poll cycle of stale data. 20 s absorbs those without
+// letting a stuck request hold a poll slot for anything like the refresh
+// interval.
+//
+// Note the worst case per poll is three requests, not one: a token error
+// retries as initial → `_login` → retry. At 20 s each that is up to 60 s,
+// which exceeds MIN_REFRESH_SECONDS — see the in-flight guard in
+// `startPolling` (src/index.js), which is what keeps polls from overlapping.
+const REQUEST_TIMEOUT_MS = 20000;
 
 // Mutation arg types verbatim from jondarrer/warmup-api/warmup-schema.graphql.
 // `lid: Int!` (required), `rid: Int` (nullable — omit for location-wide;

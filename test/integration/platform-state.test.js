@@ -1159,6 +1159,75 @@ describe('warmup4ie dynamic platform', () => {
     platform.shutdown();
   });
 
+  test('a slow poll does not get a second one stacked on top of it', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // A poll can take up to three requests (initial → re-auth → retry) at
+    // REQUEST_TIMEOUT_MS each. Since that was raised to 20 s the worst case
+    // exceeds MIN_REFRESH_SECONDS, so setInterval would otherwise fire again
+    // over a still-running poll — doubling requests against an API that is
+    // already struggling, and racing two writes into the room cache.
+    let release;
+    const inFlight = new Promise((r) => { release = r; });
+    clients[0].getStatus = jest.fn(() => inFlight.then(() => []));
+
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    expect(clients[0].getStatus).toHaveBeenCalledTimes(1);
+
+    // Second and third ticks land while the first is still outstanding.
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    expect(clients[0].getStatus).toHaveBeenCalledTimes(1);
+
+    // Once it settles, polling resumes normally.
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    expect(clients[0].getStatus).toHaveBeenCalledTimes(2);
+
+    platform.shutdown();
+    jest.useRealTimers();
+  });
+
+  test('a failed poll clears the in-flight flag rather than wedging polling', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The flag is cleared in `finally`, so a throw must not leave it set —
+    // otherwise one transient network error would stop polling for good.
+    clients[0].getStatus = jest.fn(async () => { throw new Error('boom'); });
+
+    for (let i = 0; i < 3; i++) {
+      jest.advanceTimersByTime(platform.refresh * 1000);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    expect(clients[0].getStatus).toHaveBeenCalledTimes(3);
+    expect(platform._pollInFlight).toBe(false);
+
+    platform.shutdown();
+    jest.useRealTimers();
+  });
+
   test('shutdown: clears the poll timer and pending debouncers', async () => {
     const platform = new PlatformCtor(
       fakeLog(), { username: 'one@example.com', password: 'p' }, api

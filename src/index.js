@@ -179,6 +179,8 @@ function warmup4iePlatform(log, config = {}, api) {
   // room can be in flight simultaneously and land out of order.
   this._writeChains = new Map();
   this._pollTimer = null;
+  // Guards against setInterval stacking a second poll on top of a slow one.
+  this._pollInFlight = false;
 
   if (api && typeof api.on === 'function') {
     // Wait for Homebridge to finish loading all cached accessories before
@@ -303,6 +305,18 @@ warmup4iePlatform.prototype = {
   startPolling: function () {
     this.shutdown();
     this._pollTimer = setInterval(async () => {
+      // Skip this tick if the previous poll is still running. A poll can take
+      // up to three requests (initial → re-auth → retry) at REQUEST_TIMEOUT_MS
+      // each, which since the 20 s timeout can exceed
+      // MIN_REFRESH_SECONDS. Without this, setInterval would stack a second
+      // poll on top of a slow one: both would rewrite the room cache and push
+      // characteristics, wasting requests against an API we already know to
+      // be struggling at that moment.
+      if (this._pollInFlight) {
+        this.log.debug('Skipping poll — previous one still in flight');
+        return;
+      }
+      this._pollInFlight = true;
       try {
         if (!this.thermostats) return;
         const rooms = await this.thermostats.getStatus();
@@ -323,6 +337,11 @@ warmup4iePlatform.prototype = {
         pushLocationSwitchStates(this);
       } catch (err) {
         this.log.error('Warmup poll failed:', err.message);
+      } finally {
+        // `finally`, not the end of `try` — the early `return` when
+        // `thermostats` is null and any throw must both clear the flag, or
+        // one failure would wedge polling permanently.
+        this._pollInFlight = false;
       }
     }, this.refresh * 1000);
   },
@@ -345,6 +364,7 @@ warmup4iePlatform.prototype = {
     }
     this._debouncers.clear();
     this._writeChains.clear();
+    this._pollInFlight = false;
   }
 };
 

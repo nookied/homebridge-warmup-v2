@@ -186,7 +186,8 @@ running in a child bridge. 6 rooms. Released SHA `3c5e97f`.
 
 - 7 × `Warmup network error: The operation was aborted due to timeout` across
   26–28 Aug — the client's 10 s `AbortSignal.timeout` firing. Each costs one
-  poll cycle. Worth considering a longer or configurable timeout.
+  poll cycle. **Addressed in v3.12.1:** timeout raised to 20 s, plus an
+  in-flight guard so the longer timeout cannot let polls overlap.
 - A 50-minute block of `fetch failed` on 26 Aug (15:30–16:20) ending in a
   restart. Unknown whether it would have self-recovered; if it recurs,
   determine that before assuming the poll loop recovers on its own.

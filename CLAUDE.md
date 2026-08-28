@@ -40,7 +40,7 @@ homebridge-warmup4ie-v2/
 │   │   │   ├── configureAccessory(cached)        Stash cached PlatformAccessory in this.accessories Map
 │   │   │   ├── discoverDevices()                 Login + fetch rooms → reconcileAccessories
 │   │   │   ├── reconcileAccessories(rooms)       Diff live vs cached → register/unregister/update deltas
-│   │   │   ├── startPolling()                    setInterval(getStatus + reconcile-if-changed + push per room)
+│   │   │   ├── startPolling()                    setInterval(getStatus + reconcile-if-changed + push); skips while a poll is in flight
 │   │   │   └── shutdown()                        Clear poll timer + pending debouncers (api 'shutdown' event)
 │   │   ├── attachAccessoryServices(p, acc, room) Idempotent service setup (Information/Thermostat/TemperatureSensor)
 │   │   ├── pushRoomState(acc, room)              Updates HAP characteristics from a room snapshot
@@ -57,7 +57,7 @@ homebridge-warmup4ie-v2/
 │   │
 │   └── lib/
 │       ├── warmup4ie.js                      Warmup cloud API client (class Warmup4IE)
-│       │   ├── _fetch(url, body, headers)            Generic POST helper, AbortSignal.timeout(10s)
+│       │   ├── _fetch(url, body, headers)            Generic POST helper, AbortSignal.timeout(20s)
 │       │   ├── _rest(body)                            REST POST → status.result success-gate
 │       │   ├── _graphql(query, variables)             GraphQL POST → errors[] gate
 │       │   ├── _authenticatedGraphQL(q, v)            Re-auth + retry once on token errors
