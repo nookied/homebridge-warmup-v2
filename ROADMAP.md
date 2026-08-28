@@ -232,6 +232,39 @@ A grab bag of features ranging from purely additive (no GraphQL changes) to "nee
 
 ---
 
+### Milestone 8 — Label the temperature reading (candidate, not scheduled)
+
+**Problem.** The Thermostat tile's Current reading is air temperature on
+air-configured devices and floor temperature on floor-configured ones, and the
+plugin never says which. The README currently asks users to work out their own
+sensor mode in order to decide how to set `disableAirSensor`.
+
+**What the API already gives us** (confirmed against a real account
+2026-08-28 — see CLAUDE.md's field survey):
+
+- `Thermostat4iE.heatingTarget` — enum, `floor` | `air`
+- `Room.mainTemp` / `mainLabel`, `Room.secondaryTemp` / `secondaryLabel` —
+  both readings, each with the device's own label
+
+**Why this is the right shape.** It is strictly better than the "add a floor
+sensor" idea it replaced: the device tells us what it measures rather than us
+guessing, the labels come from Warmup rather than being hardcoded, and it
+works for one-probe and two-probe installs alike.
+
+**The trap, already found.** `secondaryTemp` returns `900` (90.0 °C) when no
+probe is fitted. Any implementation must suppress it. A naive version would
+have published 90 °C to every user without a floor probe.
+
+**Open design question.** Renaming an existing service changes what users see
+in Apple Home, and HomeKit does not let a plugin relabel a characteristic's
+*value*. The realistic scope is naming the secondary sensor from
+`secondaryLabel` and documenting the primary, not relabelling the Thermostat.
+
+**Effort:** ~half a day plus live QA on a floor-configured device — which
+nobody currently has, so this cannot be fully verified yet.
+
+---
+
 ### Milestone 7 — Verified Plugin application
 
 **Goal:** Open an issue at [`homebridge/plugins`](https://github.com/homebridge/plugins/issues/new/choose) using the verification template.

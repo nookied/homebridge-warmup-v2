@@ -156,6 +156,77 @@ Temperatures from the GraphQL API are integers in tenths of °C on `Room` (`195`
 
 `runMode` enum (per schema): `not_set | off | schedule | override | fixed | anti_frost | holiday | fil_pilote | gradual | relay | previous`. `src/lib/state.js` maps `off | holiday | anti_frost` to OFF (0), `fixed | override` to HEAT (1), `schedule | gradual` to AUTO (3), and falls back to HEAT for rare/unknown modes (`not_set`, `fil_pilote`, `relay`, `previous`). Current heating state uses Warmup's real relay/output signal when available, with the old temperature-delta inference only as a fallback.
 
+## Live API field survey (2026-08-28)
+
+Probed against a real 6-room account (Portugal, six Warmup devices, all
+`type="rsw"`, firmware `29.175` / `28.166`) using
+`scratchpad/probe-fields.js`, one field group per query so a gateway rejection
+isolates itself. **Every group below was accepted** — unlike `user.location(id:)`,
+which still 409s.
+
+These are observations from one account. Treat them as strong evidence about
+what the API returns in practice, not as guarantees.
+
+### Sensor mode is knowable — stop asking users to guess
+
+| Field | Location | Observed |
+|---|---|---|
+| `heatingTarget` | `Thermostat4iE` | `air` on all six (enum: `floor` \| `air`) |
+| `mainTemp` / `mainLabel` | `Room` | `235` / `"air"` |
+| `secondaryTemp` / `secondaryLabel` | `Room` | `900` / `"floor"` |
+
+`Room.currentTemp` equalled `mainTemp` on every room, so **`currentTemp` is
+whatever the device regulates on** — air here, and floor on a floor-configured
+device. That is exactly what `disableAirSensor`'s README note currently asks
+the user to work out for themselves. `heatingTarget` and `mainLabel` make it
+knowable, and are the prerequisite for labelling the reading honestly rather
+than hardcoding "Air".
+
+### ⚠️ `900` is a "no probe fitted" sentinel, not a temperature
+
+`secondaryTemp` read exactly `900` (= 90.0 °C) on all six rooms. Physically
+impossible for underfloor heating and identical across devices: it means **no
+floor probe is connected**. `floor1Temp` / `floor2Temp` almost certainly carry
+the same sentinel on such devices.
+
+**Any future floor-temperature sensor must suppress `900`**, or it will
+publish 90 °C to every user without a floor probe — worse than not shipping
+the feature. This was caught only because the field survey ran against real
+hardware before anything was built.
+
+### Energy data can be entirely absent
+
+`energy="0.00"`, `cost="0.00"`, `total=0` on all six rooms. `total` is meant
+to be cumulative since install, so zero is not "no usage today".
+
+That means the **Eve `TotalConsumption` characteristic shipped in v3.5 has
+been publishing nothing but `0` on this account since release** — a feature
+that looks live in code and is inert in the field. Possibly because energy
+tracking needs tariff configuration (`Parameters` carries `tariff1`,
+`tariff2`, `currency`), possibly because these devices never report it.
+Unresolved; worth checking against a second account before investing further
+in energy features.
+
+### Fields confirmed available but of limited use
+
+- `Thermostat4iE.type` = `"rsw"` on all six. A model code, but not a
+  marketing name — does **not** cleanly resolve the generic
+  `"Wi-Fi Thermostat"` Model string (Known issue #1).
+- `Parameters.rssi` = `""` — empty, useless for signal reporting.
+- `Parameters.brightness` = `4`, except `10` on one device; `offsetAir` and
+  `offsetFloor1` = `"0"`. So the display-brightness and sensor-offset work
+  parked as Known issue #2 **is** reachable, with real varying values.
+- `Room.floorType` = `tile_stone`, `roomType` = `bedroom` / `bathroom` /
+  `living_room`. Room metadata with no obvious HomeKit home.
+- `Thermostat4iE.systemType` varies within one account: `electric_relay` on
+  one device, `electric` on the rest.
+
+### Fields we already fetch and never read
+
+`roomMode`, `overrideTemp`, `fixedTemp`, `energy`, `cost`, `floor1Temp`,
+`floor2Temp`, `deviceSN`, `wifiFw`. Deliberately left in the query: removing
+them is a wire-protocol change requiring a live test, for no measurable gain.
+
 ## HomeKit mapping
 
 Every temperature below is normalized to tenths of °C by `tenths()` in
@@ -297,10 +368,11 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 ## Known issues / tech debt
 
 ### Open
-1. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `deviceSN` today, but the plugin does not yet fetch/use enough reliable per-model metadata for all supported devices. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
-2. **Partial `deviceAdvanced` integration only** — child lock is surfaced, but display brightness and sensor offsets are still intentionally deferred. Roadmap **M6**.
-3. **`room.cost` not surfaced.** Available in `normalizeRoom`, no HomeKit/Eve home for it (Eve has no standard cost characteristic). Could add as a custom characteristic if a user asks.
-4. **`fakegato-history` drags in `googleapis`.** `fakegato-history@0.6.7` declares `googleapis` as a hard dependency, and `fakegato-storage.js` requires its Google Drive backend at the *top level* — so it loads on every start even though we only ever pass `storage: 'fs'`. Cost measured **in situ on a Raspberry Pi 5**, child-bridge RSS settled, config applied via a full Homebridge restart: **172–179 MB with history on → 107–108 MB with `disableHistory: true`**, i.e. **~65 MB, about 38% of the process**. Requiring the module in isolation shows a larger ~119 MB delta; the in-situ figure is the one to quote, and an earlier "~105 MB" claim derived from a dev-Mac isolated measurement was wrong. Also ~194 MB on disk. **Mitigated, not solved,** in v3.12.0: the load is deferred and `disableHistory` skips it entirely, so anyone not using Eve.app pays nothing. Users who *do* want Eve graphs still pay in full.
+1. **Per-thermostat `Model` is generic.** Set to `"Wi-Fi Thermostat"`. **Investigated 2026-08-28 and still unresolved:** `Thermostat4iE.type` *is* available and returns `"rsw"` — a model code, not a marketing name, and identical across six devices spanning two firmware versions. `deviceSN` is also available but is a serial, not a model. So there is no field that maps cleanly to "4iE" / "6iE" / "Element". Substituting `"rsw"` would be less informative than the current honest generic string. **Won't fix until Warmup exposes a real model name** — this is closer to "by design" than "to do".
+2. **Partial `deviceAdvanced` integration only** — child lock is surfaced; display brightness and sensor offsets remain deferred. **Confirmed reachable 2026-08-28:** `Parameters.brightness` returns real, varying values (`4` on five devices, `10` on one), and `offsetAir` / `offsetFloor1` return `"0"`. So the data is there and the mutation exists. The open question is not feasibility but whether either belongs in HomeKit at all — there is no natural characteristic for "display brightness of a thermostat", and a Lightbulb service would be a lie. Deferred on design grounds, not technical ones.
+3. **Eve energy may be inert.** `energy`, `cost` and `total` all returned zero across a real six-room account (2026-08-28), and `total` is meant to be cumulative-since-install. The Eve `TotalConsumption` characteristic shipped in v3.5 therefore publishes nothing but `0` there. Cause unknown — possibly tariff configuration is a prerequisite (`Parameters` carries `tariff1`, `tariff2`, `currency`), possibly these devices never report it. **Check against a second account before investing further in energy features.**
+4. **`room.cost` not surfaced.** Available in `normalizeRoom`, no HomeKit/Eve home for it (Eve has no standard cost characteristic). Could add as a custom characteristic if a user asks.
+5. **`fakegato-history` drags in `googleapis`.** `fakegato-history@0.6.7` declares `googleapis` as a hard dependency, and `fakegato-storage.js` requires its Google Drive backend at the *top level* — so it loads on every start even though we only ever pass `storage: 'fs'`. Cost measured **in situ on a Raspberry Pi 5**, child-bridge RSS settled, config applied via a full Homebridge restart: **172–179 MB with history on → 107–108 MB with `disableHistory: true`**, i.e. **~65 MB, about 38% of the process**. Requiring the module in isolation shows a larger ~119 MB delta; the in-situ figure is the one to quote, and an earlier "~105 MB" claim derived from a dev-Mac isolated measurement was wrong. Also ~194 MB on disk. **Mitigated, not solved,** in v3.12.0: the load is deferred and `disableHistory` skips it entirely, so anyone not using Eve.app pays nothing. Users who *do* want Eve graphs still pay in full.
    **Why it can't be fixed properly from here:** `overrides` in a package's own manifest are ignored when it is installed as a dependency; `patch-package` only patches the tree of the project that runs it, and a postinstall rewriting another package's files on a user's machine is fragile across hoisting layouts and inappropriate for a Verified plugin. Upstream is effectively unmaintained (0.6.7 is latest, published 2025-03-24) and there is **no maintained fork on npm** (checked 2026-08-28). The remaining real options are: publish our own patched fork of fakegato under a scoped name, or reimplement the small slice of the Eve history format we actually use. Both are real commitments; neither is scheduled.
 
 ### Resolved
@@ -328,12 +400,13 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 ## Working rules (for this repo)
 
 1. **Don't change the wire protocol without testing live.** The Warmup API is unofficial; GraphQL gateway 409s on certain query shapes (`user.location(id:)`) even when the schema says they're valid. Run `WARMUP_LIVE_TEST=1 npm test` before tagging a release.
-2. **Prefer minimum-diff fixes.** Most of the open tech debt has been there for years — don't refactor end-to-end while fixing a one-line bug.
-3. **Touch the README and this file together** when adding/changing config keys or behaviour.
-4. **Walk `QA_TESTS.md` before tagging a release.** Offline tests + live tests catch code-side regressions; the manual checklist catches wire-format drift on the *Warmup* side and HomeKit-integration issues mocks can't see.
-5. **Never re-add an `upstream` remote pointing at NorthernMan54.** This fork is intentionally isolated.
-6. **Tag matches `package.json` version.** The release workflow asserts this; `npm version` does it for you.
-7. **`package.json` `repository.url` must match the GitHub repo URL exactly.** Sigstore provenance is strict; a mismatch breaks `npm publish` with HTTP 422 (we hit this once during the GitHub repo rename — see CHANGELOG).
+2. **The introspected schema is not documentation — probe before you build.** `jondarrer/warmup-api/warmup-schema.graphql` says what the *types* allow, not what your devices *return*. A field can be present, accepted by the gateway, and still carry a sentinel or a constant zero. The 2026-08-28 survey found `secondaryTemp` returning `900` for "no probe fitted" and `total` returning `0` on every room; building on either without checking would have shipped 90 °C tiles and a permanently flat energy graph. Use `tools/probe-fields.js`.
+3. **Prefer minimum-diff fixes.** Most of the open tech debt has been there for years — don't refactor end-to-end while fixing a one-line bug.
+4. **Touch the README and this file together** when adding/changing config keys or behaviour.
+5. **Walk `QA_TESTS.md` before tagging a release.** Offline tests + live tests catch code-side regressions; the manual checklist catches wire-format drift on the *Warmup* side and HomeKit-integration issues mocks can't see.
+6. **Never re-add an `upstream` remote pointing at NorthernMan54.** This fork is intentionally isolated.
+7. **Tag matches `package.json` version.** The release workflow asserts this; `npm version` does it for you.
+8. **`package.json` `repository.url` must match the GitHub repo URL exactly.** Sigstore provenance is strict; a mismatch breaks `npm publish` with HTTP 422 (we hit this once during the GitHub repo rename — see CHANGELOG).
 
 ## Quick reference
 
@@ -349,6 +422,7 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 | Pre-release manual QA | `QA_TESTS.md` |
 | Run live API tests | `WARMUP_LIVE_TEST=1 WARMUP_USERNAME=… WARMUP_PASSWORD=… npm test` |
 | Update the Homebridge host | `sudo npm install -g homebridge-warmup4ie-v2 && sudo systemctl restart homebridge` |
+| Probe what a field actually returns | `WARMUP_USERNAME=… WARMUP_PASSWORD=… node tools/probe-fields.js` — never assume from the schema alone |
 | Reference the GraphQL schema | [`jondarrer/warmup-api/warmup-schema.graphql`](https://github.com/jondarrer/warmup-api/blob/main/warmup-schema.graphql) (introspected, ~3000 lines) |
 | Reference real-world request shapes | [`jondarrer/warmup-api/http-requests.http`](https://github.com/jondarrer/warmup-api/blob/main/http-requests.http) |
 | Cross-check Python implementation | [`alex-0103/warmup4IE`](https://github.com/alex-0103/warmup4IE) (REST baseline) |
@@ -376,6 +450,7 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 | `test/live/api.test.js` | Opt-in live API tests (gated by `WARMUP_LIVE_TEST=1`) |
 | `test/fixtures/*.json` | Sanitized API response samples (REST login + GraphQL owned/unpaired/error/mutation). **Keep `graphql.owned.json` in step with `GQL_OWNED_AND_ROOMS`** — it silently went three releases stale before v3.12.0, leaving the newer fields with no integration coverage. |
 | `test/helpers.js` | Shared test utilities (fetch stubbing, response builder, fixture loader) |
+| `tools/probe-fields.js` | Maintainer-only. Probes candidate GraphQL fields against a real account, one field group per query so a gateway rejection isolates itself. Produced the 2026-08-28 field survey. Excluded from the npm tarball. |
 | `test/hbConfig/config.json` | Sandbox Homebridge config for `npm run watch` (gitignored; the copy at HEAD has placeholder credentials) |
 | `test/hbConfig/auth.json` | Sandbox Homebridge-UI account for `npm run watch` — **gitignored since v3.12.1**; Homebridge UI regenerates it on first run |
 | `.github/workflows/ci.yml` | Lint + test + smoke on Node 22/24/26, every push + PR |

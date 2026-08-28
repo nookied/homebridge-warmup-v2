@@ -85,7 +85,34 @@ Add a platform entry to your Homebridge `config.json`:
 | `disableVacationSwitch` | no | `false` | Hide the location-wide **Vacation Mode** switch. Removes the cached accessory on next launch. |
 | `disableFrostSwitch` | no | `false` | Hide the location-wide **Frost Protection** switch. Removes the cached accessory on next launch. |
 | `disableHistory` | no | `false` | Turn off the Eve.app history graphs. **Worth enabling if you don't use Eve** — see [Memory use](#memory-use) below; measured at roughly **65 MB of RAM** saved per Homebridge process. No HomeKit characteristic changes either way. |
-| `disableAirSensor` | no | `false` | Hide the standalone **"Air"** temperature-sensor tile. The air reading is still on the Thermostat's CurrentTemperature characteristic, so this just removes the redundant second tile for users in air-sensor mode. Leave disabled if your device runs in floor-sensor mode (then the Thermostat reports floor temp and the air tile is the only place to see air temp). Removes any cached air-sensor services on next launch. |
+| `disableAirSensor` | no | `false` | Hide the standalone **"Air"** temperature-sensor tile. See [Which temperature am I looking at?](#which-temperature-am-i-looking-at) — if your thermostat is in **air** mode the tile duplicates the Thermostat exactly and you can safely turn it off; in **floor** mode it is the only place to see air temperature. Removes any cached air-sensor services on next launch. |
+
+### Which temperature am I looking at?
+
+The Thermostat tile's **Current** reading is whatever your device *regulates
+on* — which depends on how the thermostat was commissioned:
+
+| Device sensor mode | Thermostat tile shows | The `Air` tile shows |
+|---|---|---|
+| **Air** | air temperature | the same value — redundant, safe to hide |
+| **Floor** | floor temperature | air temperature — the only place to see it |
+
+To find out which mode yours is in, check the thermostat's own settings or the
+MyHeating app. The plugin does not currently label the reading — the Warmup
+API does expose the answer (`heatingTarget`, and a `mainLabel` per room), so
+this is a known gap rather than a limitation.
+
+A device with **no floor probe fitted** reports a placeholder value for the
+floor reading, not a real temperature. The plugin never surfaces that field,
+so you will not see it.
+
+### Energy graphs may show nothing
+
+If you use Eve.app, the cumulative energy figure comes from Warmup's own
+`total` field. On at least one real account that field returns **zero for
+every room**, so the graph stays flat regardless of usage. It may require
+tariff details to be configured in the MyHeating app first. Nothing in the
+plugin can work around it — the number simply is not being reported.
 
 ### Memory use
 

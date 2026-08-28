@@ -7,6 +7,48 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [Unreleased]
+
+Documentation and tooling only — no runtime behaviour changes.
+
+### Added
+
+- **`tools/probe-fields.js`** — probes candidate Warmup GraphQL fields against
+  a real account, one field group per query so a gateway rejection isolates
+  itself rather than failing everything. Excluded from the npm tarball.
+- **A live API field survey in CLAUDE.md** (2026-08-28, six-room account).
+  What it settled, none of which was knowable from the introspected schema:
+  - `Thermostat4iE.heatingTarget` (`floor` | `air`) and `Room.mainLabel` /
+    `secondaryLabel` mean **the device can tell us which temperature it
+    regulates on**, instead of the README asking users to guess.
+  - **`secondaryTemp` returns `900` (90.0 °C) when no floor probe is
+    fitted** — a sentinel, not a reading. A floor-temperature sensor built
+    without knowing this would have published 90 °C to every user without a
+    probe. Warning placed at the field in `normalizeRoom`, not just in prose.
+  - **`energy`, `cost` and `total` were zero on every room.** `total` is
+    cumulative-since-install, so the Eve `TotalConsumption` characteristic
+    shipped in v3.5 has been publishing nothing but `0` on that account.
+  - `Thermostat4iE.type` is `"rsw"` — a code, not a marketing name, so it
+    does **not** resolve the generic `Model` string.
+  - `Parameters.brightness` and the sensor offsets are reachable with real
+    varying values, so that deferred work is blocked on design, not access.
+- **ROADMAP M8 (candidate)** — label the temperature reading using
+  `heatingTarget` / `mainLabel`. Supersedes the "add a floor sensor" idea,
+  which the survey showed would misfire on probe-less devices.
+- **README: "Which temperature am I looking at?"** and a note that Eve energy
+  graphs may legitimately show nothing.
+
+### Changed
+
+- Known issues 1–3 rewritten around evidence rather than assumption. The
+  generic `Model` string moves closer to won't-fix; `deviceAdvanced` is
+  confirmed reachable and deferred on design grounds.
+- New working rule: **the introspected schema is not documentation — probe
+  before you build.** A field can exist, be accepted by the gateway, and still
+  carry a sentinel or a constant zero.
+
+---
+
 ## [3.12.1] — 2026-08-28
 
 Reliability tuning driven by the v3.12.0 field logs. No config keys change,

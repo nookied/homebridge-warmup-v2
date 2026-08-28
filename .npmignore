@@ -1,6 +1,9 @@
 # Tests and fixtures — not needed at runtime
 test/
 
+# Maintainer-only API exploration script
+tools/
+
 # Linting and CI config — not needed by consumers
 eslint.config.mjs
 .github/

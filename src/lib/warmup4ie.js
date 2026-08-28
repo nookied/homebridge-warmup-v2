@@ -414,6 +414,11 @@ function normalizeRoom(r) {
     //     since v3.4 and drives `CurrentHeatingCoolingState`. The 409 seen
     //     during v3 development turned out to be specific to
     //     `user.location(id:)`, not to the `parameters` field.
+    // ⚠️ `900` (= 90.0 °C) is Warmup's sentinel for "no probe fitted", not a
+    // reading. Observed on all six devices of a real air-mode account
+    // (2026-08-28 field survey — see CLAUDE.md). Neither field is consumed
+    // today; anything that starts consuming them MUST suppress 900 first, or
+    // it will publish 90 °C to every user without a floor probe.
     floor1Temp: tenths(t.floor1Temp),
     floor2Temp: tenths(t.floor2Temp),
     isFaultAir: t.isFaultAir,
