@@ -21,6 +21,27 @@ no HomeKit accessory shape change.
   longer than 10 s from a domestic connection. Each one costs a whole poll
   cycle of stale data in HomeKit.
 
+### Internal
+
+- **Dependency refresh.** `eslint` 9 → 10, `@eslint/js` 9 → 10,
+  `eslint-plugin-jest` 28 → 29, `globals` 15 → 17, `jest` 29 → 30,
+  `nodemon` 3.1.7 → 3.1.14, and the one runtime dependency `debug`
+  4.4.0 → 4.4.3. `npm outdated` is now empty and `npm audit` still reports
+  zero vulnerabilities. The production tree is unchanged apart from `debug`:
+  still just `debug` and `fakegato-history`.
+- **Removed `eslint-plugin-format`**, which was declared but never referenced
+  by `eslint.config.mjs` — dead weight that pulled in prettier and the dprint
+  formatters for nothing.
+- **Attached `cause` to both wrapped transport errors.** ESLint 10's new
+  `preserve-caught-error` rule caught this: `_fetch` rewrote network and JSON
+  failures into a `Warmup …` message and discarded the original, so the
+  underlying DNS failure, TLS error or abort reason was unrecoverable when
+  debugging. The message string is deliberately unchanged, because
+  `_isTokenError` and `asHapStatusError` pattern-match on it.
+- The eslint 10 upgrade was only possible because v3.12.0 had already removed
+  the `/* eslint-env jest */` directives — v10 promotes those from warning to
+  hard error.
+
 ### Documentation
 
 Findings from a full audit of every factual claim in the docs against the
@@ -919,6 +940,27 @@ changes; everything uses data we already fetch. `config.json` unchanged.
   would rip every cached accessory out of the user's HomeKit rooms /
   scenes / automations.
 
+### Internal
+
+- **Dependency refresh.** `eslint` 9 → 10, `@eslint/js` 9 → 10,
+  `eslint-plugin-jest` 28 → 29, `globals` 15 → 17, `jest` 29 → 30,
+  `nodemon` 3.1.7 → 3.1.14, and the one runtime dependency `debug`
+  4.4.0 → 4.4.3. `npm outdated` is now empty and `npm audit` still reports
+  zero vulnerabilities. The production tree is unchanged apart from `debug`:
+  still just `debug` and `fakegato-history`.
+- **Removed `eslint-plugin-format`**, which was declared but never referenced
+  by `eslint.config.mjs` — dead weight that pulled in prettier and the dprint
+  formatters for nothing.
+- **Attached `cause` to both wrapped transport errors.** ESLint 10's new
+  `preserve-caught-error` rule caught this: `_fetch` rewrote network and JSON
+  failures into a `Warmup …` message and discarded the original, so the
+  underlying DNS failure, TLS error or abort reason was unrecoverable when
+  debugging. The message string is deliberately unchanged, because
+  `_isTokenError` and `asHapStatusError` pattern-match on it.
+- The eslint 10 upgrade was only possible because v3.12.0 had already removed
+  the `/* eslint-env jest */` directives — v10 promotes those from warning to
+  hard error.
+
 ### Documentation
 - Per-thermostat metadata fields in `normalizeRoom` get inline comments
   explaining what each is for and which roadmap milestone surfaces it.
@@ -1139,6 +1181,27 @@ No new features; no breaking changes; `config.json` is unchanged.
   package name/version and resolves dev-tool transitive advisories reported
   by `npm audit`; production dependencies audit clean.
 
+### Internal
+
+- **Dependency refresh.** `eslint` 9 → 10, `@eslint/js` 9 → 10,
+  `eslint-plugin-jest` 28 → 29, `globals` 15 → 17, `jest` 29 → 30,
+  `nodemon` 3.1.7 → 3.1.14, and the one runtime dependency `debug`
+  4.4.0 → 4.4.3. `npm outdated` is now empty and `npm audit` still reports
+  zero vulnerabilities. The production tree is unchanged apart from `debug`:
+  still just `debug` and `fakegato-history`.
+- **Removed `eslint-plugin-format`**, which was declared but never referenced
+  by `eslint.config.mjs` — dead weight that pulled in prettier and the dprint
+  formatters for nothing.
+- **Attached `cause` to both wrapped transport errors.** ESLint 10's new
+  `preserve-caught-error` rule caught this: `_fetch` rewrote network and JSON
+  failures into a `Warmup …` message and discarded the original, so the
+  underlying DNS failure, TLS error or abort reason was unrecoverable when
+  debugging. The message string is deliberately unchanged, because
+  `_isTokenError` and `asHapStatusError` pattern-match on it.
+- The eslint 10 upgrade was only possible because v3.12.0 had already removed
+  the `/* eslint-env jest */` directives — v10 promotes those from warning to
+  hard error.
+
 ### Documentation
 - `package.json` `repository.url` invariant added to working rules and
   pre-release checklist (sigstore provenance is strict — hit a 422 once
@@ -1304,6 +1367,27 @@ breaking changes; existing `config.json` continues to work unchanged.
 ### Tests
 - 56 passing (+6 since 2.0.0). New: token-refresh integration tests,
   `_isTokenError` unit tests, async/await test patterns throughout.
+
+### Internal
+
+- **Dependency refresh.** `eslint` 9 → 10, `@eslint/js` 9 → 10,
+  `eslint-plugin-jest` 28 → 29, `globals` 15 → 17, `jest` 29 → 30,
+  `nodemon` 3.1.7 → 3.1.14, and the one runtime dependency `debug`
+  4.4.0 → 4.4.3. `npm outdated` is now empty and `npm audit` still reports
+  zero vulnerabilities. The production tree is unchanged apart from `debug`:
+  still just `debug` and `fakegato-history`.
+- **Removed `eslint-plugin-format`**, which was declared but never referenced
+  by `eslint.config.mjs` — dead weight that pulled in prettier and the dprint
+  formatters for nothing.
+- **Attached `cause` to both wrapped transport errors.** ESLint 10's new
+  `preserve-caught-error` rule caught this: `_fetch` rewrote network and JSON
+  failures into a `Warmup …` message and discarded the original, so the
+  underlying DNS failure, TLS error or abort reason was unrecoverable when
+  debugging. The message string is deliberately unchanged, because
+  `_isTokenError` and `asHapStatusError` pattern-match on it.
+- The eslint 10 upgrade was only possible because v3.12.0 had already removed
+  the `/* eslint-env jest */` directives — v10 promotes those from warning to
+  hard error.
 
 ### Documentation — model coverage correction
 The original plugin (and our initial v2 docs) implied this only worked with

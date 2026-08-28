@@ -188,7 +188,11 @@ class Warmup4IE {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       });
     } catch (ex) {
-      throw new Error(`Warmup network error: ${ex.message}`);
+      // `cause` keeps the underlying error (DNS failure, TLS error, the
+      // AbortSignal timeout) reachable for anyone debugging, while the
+      // message stays the stable string that `_isTokenError` and
+      // `asHapStatusError` pattern-match on.
+      throw new Error(`Warmup network error: ${ex.message}`, { cause: ex });
     }
 
     if (!response.ok) {
@@ -199,7 +203,7 @@ class Warmup4IE {
     try {
       return JSON.parse(text);
     } catch (ex) {
-      throw new Error(`Warmup JSON parse error: ${ex.message}`);
+      throw new Error(`Warmup JSON parse error: ${ex.message}`, { cause: ex });
     }
   }
 
