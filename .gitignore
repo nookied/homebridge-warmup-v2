@@ -12,6 +12,9 @@ test/hbConfig/.uix-secrets
 /test/hbConfig/accessories
 /test/hbConfig/persist
 test/hbConfig/config.json
+# Sandbox Homebridge-UI account (salted password hash). Regenerated on first
+# run if absent, so nothing depends on it being committed.
+test/hbConfig/auth.json
 /test/hbConfig/backups
 
 # macOS Finder droppings
