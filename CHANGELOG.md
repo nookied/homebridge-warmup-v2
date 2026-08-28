@@ -470,8 +470,9 @@ to a write race, and rooms that needed a Homebridge restart to appear.
 
 - The `fakegato-history` → `googleapis` weight is mitigated by
   `disableHistory` (above) but not removed for users who want Eve graphs.
-  See that entry for why it cannot be fixed from inside this package and
-  what the remaining options are.
+  **Now closed as won't-fix**: every route to delivering the fix runs through
+  a third-party repository or a second npm package, which is out of scope.
+  See Known issues in CLAUDE.md for the measurements and the reasoning.
 ---
 
 ## [3.11.0] — 2026-05-06
