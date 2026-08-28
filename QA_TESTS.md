@@ -185,20 +185,30 @@ Reliability + hygiene patch. Staged on a clean tree; released SHA `2143764`.
   and disappears. The plugin-side logic is proven; the HAP-side integration
   is inferred.
 - **§2 Home-app visual smoke: passed.** All six tiles present and correct,
-  current temperatures **updating across polls** rather than frozen, and the
-  `<name> Air` sensors reading correctly.
+  current temperatures **updating across polls** rather than frozen.
 
-  Both of those carry weight beyond a visual tick. Since v3.12.0 an absent
-  reading is *skipped* rather than published, so a mis-normalized field would
-  surface as a stale-but-plausible number with nothing in the log — moving
-  temperatures are the only available evidence that the `tenths()` /
-  `toCelsius()` rewrite holds on live data over time. And the air sensor
-  specifically exercises the String→Number change: `airTemp` arrives from
-  Warmup as a string and is now normalized to a Number.
+  The liveness observation carries weight beyond a visual tick: since v3.12.0
+  an absent reading is *skipped* rather than published, so a mis-normalized
+  field would surface as a stale-but-plausible number with nothing in the
+  log. Moving temperatures are the only available evidence that the
+  `tenths()` / `toCelsius()` rewrite holds on live data over time.
+
+  **Correction.** An earlier revision of this entry also credited the
+  `<name> Air` sensors. That was wrong: inspection of the live host's
+  `config.json` showed `disableAirSensor: true`, so the TemperatureSensor
+  service is never created and there are no Air tiles to check. The
+  String→Number `airTemp` normalization is therefore **not** exercised on
+  this host — it remains covered only by offline tests.
 
   Not separately reported: the accessory-info panel (Manufacturer / Model /
-  Serial / Firmware). Cosmetic, and `Firmware` showing the plugin version
-  instead of the device's `appFw` would be harmless.
+  Serial / Firmware). Cosmetic.
+
+- **Field coverage is narrower than the test host suggests.** The live host
+  runs with `disableChildLock`, `disableVacationSwitch`, `disableFrostSwitch`
+  and `disableAirSensor` all `true`, so only the Thermostat service is
+  exercised in the field. Child lock, the Vacation and Frost switches, and
+  the air sensor have offline coverage only. Worth knowing before treating
+  "it works on the maintainer's system" as broad validation.
 - Still outstanding and *doable* without extra hardware: the decoded
   bad-password message, `disableHistory` memory saving, and Eve history on
   the default path.
