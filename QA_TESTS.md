@@ -137,6 +137,41 @@ If any item failed, do **not** tag. File an issue in the repo, fix on the branch
 Keep the checklist above blank and reusable; record each release's actual
 result here, including what was *not* run.
 
+### v3.12.1 — 2026-08-28
+
+Reliability + hygiene patch. Staged on a clean tree; released SHA `2143764`.
+
+**Passed**
+
+- **Live API test — the first time it has run in this cycle.** 149 tests
+  total: 147 offline plus the 2 live cases, against a real Warmup account.
+  This is the only check capable of detecting wire drift in Warmup's
+  unofficial, unversioned API; everything else only proves the plugin still
+  agrees with itself.
+
+  What it confirms on real data: login and room fetch succeed; every
+  normalized temperature is a Number or `null` (asserted as a type check, not
+  `Number.isFinite(Number(v))`, which would pass for `null` since
+  `Number(null)` is `0` — precisely the trap that produced fabricated 0 °C
+  readings before v3.12.0); `minTemp < maxTemp` holds on real device data;
+  `lock` is boolean-or-null and `outputStatus` number-or-null; and
+  `getStatus()` refreshes the cache without changing room IDs.
+
+  It also retroactively validates the v3.12.0 wire changes, since the staging
+  HEAD contains all of them.
+- Pre-flight verified mechanically: clean tree, changelog dated,
+  `repository.url` matching the remote, `main` in sync with origin, lint,
+  tests, smoke, and `npm audit` at zero vulnerabilities.
+
+**Not run**
+
+- The §5b items still outstanding from v3.12.0: live room add/remove,
+  `disableHistory` memory saving, Eve history on the default path, the
+  decoded bad-password message, and the §2 Home-app visual smoke. None block
+  a patch release; carry them forward.
+
+---
+
 ### v3.12.0 — 2026-08-28
 
 Host: Raspberry Pi 5, Homebridge 2.4.0 (HAP 2.2.2), Node 24.20.0, plugin
@@ -177,8 +212,10 @@ running in a child bridge. 6 rooms. Released SHA `3c5e97f`.
 **Not run — carried forward**
 
 - **Live API test** (`WARMUP_LIVE_TEST=1`). No credentials were available in
-  the session that cut the release. **v3.12.0 shipped to npm without it.**
-  Run it before the next release at the latest.
+  the session that cut the release, so **v3.12.0 shipped to npm without it.**
+  It was subsequently run against the v3.12.1 staging HEAD — which contains
+  everything 3.12.0 shipped — and passed. See the v3.12.1 entry below. The
+  gap was real at the time and is recorded here rather than erased.
 - Live room add/remove, `disableHistory` memory saving, Eve history on the
   default path, the decoded bad-password message, §2 Home-app visual smoke.
 
