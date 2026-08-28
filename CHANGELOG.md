@@ -7,11 +7,11 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
-## [3.13.0] — unreleased
+## [3.13.0] — 2026-08-28
 
-Implements ROADMAP M8. **Changes the GraphQL query**, so it needs a live test
-before tagging (working rule 1) — though `tools/probe-fields.js` has already
-confirmed every added field is accepted by the gateway against a real account.
+Implements ROADMAP M8. Changes the GraphQL query; **live-tested against a real
+account before tagging** (158 passed / 1 skipped), so the gateway is confirmed
+to accept the combined query shape, not just the fields probed individually.
 
 ### Added
 

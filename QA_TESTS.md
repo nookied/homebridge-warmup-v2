@@ -153,6 +153,34 @@ If any item failed, do **not** tag. File an issue in the repo, fix on the branch
 Keep the checklist above blank and reusable; record each release's actual
 result here, including what was *not* run.
 
+### v3.13.0 — 2026-08-28
+
+M8: labelled secondary temperature reading. Released SHA to follow.
+
+**Passed**
+
+- **Live API test with the changed query.** 158 passed / 1 skipped — 156
+  offline plus the 2 live cases. This is the run that matters for this
+  release: `mainTemp`, `mainLabel`, `secondaryTemp`, `secondaryLabel` and
+  `heatingTarget` were added to the plugin's *own* query, not just probed
+  standalone, so the gateway had to accept the combined shape. It did.
+- The live assertions cover the new fields by type: every temperature is a
+  Number or `null`, never `undefined` and never a stray string.
+
+**Not verified — offline coverage only**
+
+- **The "Floor" path.** No floor-configured or dual-probe device was
+  available, so the branch where `secondaryTemp` is a real reading and the
+  tile is named "Floor" is exercised only by unit and integration tests. The
+  air-mode, no-probe path — which is what every existing user hits, and the
+  one that must not break — is verified on real hardware.
+- The `900` sentinel filter keys on exactly `900`. Six devices on one account
+  all reported exactly that. If some other model uses a different placeholder
+  it would slip through as a real reading; unknown until another account is
+  seen.
+
+---
+
 ### v3.12.1 — 2026-08-28
 
 Reliability + hygiene patch. Staged on a clean tree; released SHA `2143764`.
