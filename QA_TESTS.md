@@ -33,7 +33,7 @@ sudo journalctl -u homebridge -f --since '1 minute ago'
 
 - [ ] No errors during plugin load (`Loaded plugin: homebridge-warmup4ie-v2@<version>`)
 - [ ] `[WarmUP] Logging into warmup4ie...` followed by `[WarmUP] Found N room(s)` — N matches the Warmup / MyHeating app
-- [ ] One `[WarmUP] Adding <name>` line per room
+- [ ] One `[WarmUP] Adding <name>` line per room — **only for accessories new to this host.** On an upgrade with a populated cache you get `Loaded N cached accessories` instead and no `Adding` lines; that is correct, not a failure
 - [ ] No `Warmup API:`, `Warmup HTTP`, or `Warmup GraphQL:` errors in the first minute
 - [ ] No `TypeError`, `ReferenceError`, unhandled promise rejection
 
@@ -49,6 +49,14 @@ Open the iOS Home app:
 - [ ] Accessory info (long-press tile → ⓘ): Manufacturer = "Warmup", Model = "Wi-Fi Thermostat", Serial = `warmup4ie-<roomId>`, Firmware = plugin version
 
 ## 3. Control — single room (do these for ONE room first)
+
+> **Successful control actions log nothing.** `Set TargetTemperature` /
+> `Set HeatingCoolingState` / `Set ChildLock` are emitted at `debug` level, so
+> they are invisible unless Homebridge debug mode is on. Only *failures* log,
+> at `error` level. So for this section the pass signal is **the physical
+> device matching + no new error lines** — do not go hunting for confirmation
+> lines that were never going to appear.
+
 
 - [ ] **Drag target temperature slider** → Warmup app shows "Override" active for `duration` minutes
 - [ ] **Slider drag-and-drop is debounced** — drag fast across many values; only the *final* value is sent (one network call, not N) — check Homebridge log
@@ -117,3 +125,58 @@ prove. Each is written so a failure is unambiguous.
 - [ ] GitHub Release published
 
 If any item failed, do **not** tag. File an issue in the repo, fix on the branch, re-run the suite, and try again.
+
+---
+
+## Release log
+
+Keep the checklist above blank and reusable; record each release's actual
+result here, including what was *not* run.
+
+### v3.12.0 — 2026-08-28
+
+Host: Raspberry Pi 5, Homebridge 2.4.0 (HAP 2.2.2), Node 24.20.0, plugin
+running in a child bridge. 6 rooms. Released SHA `3c5e97f`.
+
+**Passed**
+
+- Pre-flight: clean tree, tag/version match enforced by CI, `CHANGELOG.md`
+  dated, `repository.url` matches the repo, `npm run lint` clean,
+  145 offline tests green, `npm audit` 0 vulnerabilities.
+- Startup (§1): `Registering platform 'homebridge-warmup4ie-v2.warmup4ie'`,
+  `Child bridge started successfully (plugin v3.12.0)`, `Logging into
+  warmup4ie...` → `Found 6 room(s)` in ~1 s. Zero occurrences of
+  `Warmup API:`, `Warmup HTTP`, `Warmup GraphQL:`, `TypeError`,
+  `ReferenceError`, unhandled rejection, or HAP `illegal value`.
+- Control (§3): **Off/On** confirmed against the physical thermostat.
+  **27 °C setpoint** applied and matched.
+- Implicit confirmation of the v3.12.0 temperature-normalization rewrite:
+  HomeKit rejects setpoints outside `TargetTemperature`'s
+  `minValue`/`maxValue`, so 27 °C being accepted and applied proves
+  `minTemp`/`maxTemp` normalized to a sane range from real device data.
+**Weak evidence — do not treat as passed**
+
+- No `Warmup room list changed` line appeared, which is what a stable 6-room
+  account should produce. But the exported log ends ~1 s after startup, so
+  almost no steady-state runtime was actually observed. Re-check the
+  no-churn item in §5b over a window of at least 10 minutes before ticking
+  it.
+
+**Not run — carried forward**
+
+- **Live API test** (`WARMUP_LIVE_TEST=1`). No credentials were available in
+  the session that cut the release. **v3.12.0 shipped to npm without it.**
+  Run it before the next release at the latest.
+- **Write-ordering** (§5b): set 20 °C, wait ~2 s, set 24 °C, confirm the
+  device ends at 24. This is the one materially untested new fix.
+- Live room add/remove, `disableHistory` memory saving, Eve history on the
+  default path, the decoded bad-password message, §2 Home-app visual smoke.
+
+**Observations (pre-existing, on v3.11.0 — not introduced by this release)**
+
+- 7 × `Warmup network error: The operation was aborted due to timeout` across
+  26–28 Aug — the client's 10 s `AbortSignal.timeout` firing. Each costs one
+  poll cycle. Worth considering a longer or configurable timeout.
+- A 50-minute block of `fetch failed` on 26 Aug (15:30–16:20) ending in a
+  restart. Unknown whether it would have self-recovered; if it recurs,
+  determine that before assuming the poll loop recovers on its own.
