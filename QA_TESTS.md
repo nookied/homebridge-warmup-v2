@@ -167,6 +167,24 @@ M8: labelled secondary temperature reading. Released SHA to follow.
 - The live assertions cover the new fields by type: every temperature is a
   Number or `null`, never `undefined` and never a stray string.
 
+- **The startup diagnostic, confirmed on real hardware.** After upgrading the
+  Pi to 3.13.0:
+
+  ```
+  [WarmUP] Thermostat temperature is the air reading for: Room Left Upstairs,
+           Dormitorio Suite, WC Downstairs, Upstairs, Living Room Downstairs,
+           Room Right Upstairs
+  ```
+
+  Both branches behaved correctly: `heatingTarget` was read from all six live
+  devices, and the "Air tile is redundant" hint was correctly **suppressed**
+  because that host runs `disableAirSensor: true`.
+
+- **No tile changed on upgrade**, which is the compatibility guarantee. With
+  no second probe fitted, `secondaryTemp` is null, the value falls back to
+  `airTemp` and the label stays "Air" — so nothing was renamed and nothing
+  dropped out of a HomeKit scene.
+
 **Not verified — offline coverage only**
 
 - **The "Floor" path.** No floor-configured or dual-probe device was
