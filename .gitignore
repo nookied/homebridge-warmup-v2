@@ -20,3 +20,7 @@ test/hbConfig/auth.json
 # macOS Finder droppings
 .DS_Store
 **/.DS_Store
+
+# Throwaway working document for the Homebridge Verified application.
+# Delete once the request is filed.
+.github/verification-request-draft.md

@@ -7,7 +7,7 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
-## [3.12.1] — unreleased
+## [3.12.1] — 2026-08-28
 
 Reliability tuning driven by the v3.12.0 field logs. No config keys change,
 no HomeKit accessory shape change.
@@ -20,6 +20,23 @@ no HomeKit accessory shape change.
   `AbortSignal.timeout` firing, because the Warmup cloud sometimes takes
   longer than 10 s from a domestic connection. Each one costs a whole poll
   cycle of stale data in HomeKit.
+
+### Fixed
+
+- **Polls can no longer stack on top of each other.** A single poll can issue
+  up to three requests — initial, `_login`, retry — when a token error is
+  hit. At the new 20 s timeout that worst case reaches 60 s, which exceeds
+  `MIN_REFRESH_SECONDS` (30), so `setInterval` could fire a second poll over
+  a still-running one: both would rewrite the room cache and push
+  characteristics, doubling load on an API already known to be struggling at
+  that moment. The poll now skips its tick while one is in flight.
+
+  The flag is cleared in a `finally`, so neither a thrown error nor the early
+  return when the client is absent can wedge polling permanently — a
+  regression test covers exactly that, since getting it wrong would silently
+  stop all updates until a restart.
+
+---
 
 ### Internal
 
@@ -84,21 +101,6 @@ code, rather than a read-through for plausibility.
   `config.schema.json`, README and CLAUDE.md; every one of the 33 functions
   named in the architecture tree exists; the tuning constants match the
   schema's min/max; zero broken internal links or anchors.
-
-### Fixed
-
-- **Polls can no longer stack on top of each other.** A single poll can issue
-  up to three requests — initial, `_login`, retry — when a token error is
-  hit. At the new 20 s timeout that worst case reaches 60 s, which exceeds
-  `MIN_REFRESH_SECONDS` (30), so `setInterval` could fire a second poll over
-  a still-running one: both would rewrite the room cache and push
-  characteristics, doubling load on an API already known to be struggling at
-  that moment. The poll now skips its tick while one is in flight.
-
-  The flag is cleared in a `finally`, so neither a thrown error nor the early
-  return when the client is absent can wedge polling permanently — a
-  regression test covers exactly that, since getting it wrong would silently
-  stop all updates until a restart.
 
 ---
 
