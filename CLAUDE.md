@@ -242,13 +242,18 @@ Or via Homebridge UI: Plugins tab → search for `homebridge-warmup4ie-v2` → I
 4. Update `CHANGELOG.md` with the new version's entry (date, sections).
 5. `npm version patch|minor|major` — bumps `package.json` and creates a `vX.Y.Z` git tag.
 6. `git push --follow-tags` — pushes the commit + tag.
-7. CI's `release.yml` (triggered by the tag) lints, tests, smokes, then `npm publish --provenance` using `NPM_TOKEN`, then creates a GitHub Release.
+7. CI's `release.yml` (triggered by the tag) lints, tests, smokes, then `npm publish` authenticated by **GitHub OIDC trusted publishing** (no token), then creates a GitHub Release. Provenance is generated automatically — do not re-add `--provenance`.
 
 ### CI / secrets
 
 - `.github/workflows/ci.yml` — lint + test + smoke on Node 18.20 / 20.15 / 22 / 24, every push and PR.
 - `.github/workflows/release.yml` — tag-driven (`v*`) publish + Release. Verifies tag matches `package.json` version before publishing.
-- Required GitHub secret: `NPM_TOKEN` (npm Granular Access Token with **Bypass two-factor authentication enabled** + read+write on `homebridge-warmup4ie-v2`). Classic Automation Tokens were phased out by npm for new accounts. If you regenerate the token, paste it directly into the GitHub secret UI — never anywhere else.
+- **No npm secret is required.** Publishing uses npm **trusted publishing** (GitHub OIDC), configured on npmjs.com under the package's *Trusted Publisher* settings: org `nookied`, repo `homebridge-warmup-v2`, workflow filename `release.yml`, environment blank. The workflow's `id-token: write` permission is the only credential in the path.
+  - This replaced a long-lived Granular Access Token in v3.12.0. That token expired silently after 90 days and broke the release with a **`404 Not Found - PUT`** — npm reports a dead or unauthorized token as a missing package, so a 404 on publish means *auth*, not a missing package. Trusted publishing has no expiry, so this cannot recur.
+  - **Two traps that both produce that same misleading 404:**
+    1. **Never set `registry-url` on `actions/setup-node`.** It writes `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into `.npmrc`; with no token that expands to empty, npm decides auth is already configured, and never starts the OIDC exchange. (`actions/setup-node#1551`, `npm/documentation#1960`.) The workflow carries a comment saying so, plus a defensive step that strips any `_authToken` line.
+    2. **Never rename `release.yml`.** npm matches the trusted publisher on the workflow *filename* alone; renaming it silently breaks publishing until the npmjs.com config is updated to match.
+  - Requires npm >= 11.5.1 and Node >= 22.14 on the runner (Node 22 ships npm 10, so `lts/*` resolving to 22 would fail). The workflow asserts the npm version explicitly rather than letting it surface as a 404.
 
 ## Versioning
 
