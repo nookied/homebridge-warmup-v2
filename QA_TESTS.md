@@ -246,8 +246,27 @@ Reliability + hygiene patch. Staged on a clean tree; released SHA `2143764`.
 
   Host state restored afterwards: `disableHistory` removed, Homebridge
   restarted, 6 rooms, 170 MB settled.
-- Still outstanding and *doable* without extra hardware: the decoded
-  bad-password message, and Eve history on the default path.
+- **Decoded bad-password message: passed.** With a deliberately invalid
+  password the live host logged exactly the intended line:
+
+  ```
+  [WarmUP] Warmup login/initial fetch failed: Warmup API: invalid email or password (errorCode 101)
+  ```
+
+  Before v3.12.0 that read `Warmup API: {"result":"error"}` — the useless
+  output that motivated the fix. Confirmed on real hardware against the real
+  Warmup API, not a fixture.
+
+  Safe to repeat: a failed bootstrap sets `thermostats = null` and returns
+  *before* `startPolling()`, so it is exactly **one** login attempt per
+  Homebridge start — no retry loop hammering the account. Verified in the
+  source before running it.
+
+  The real password was swapped out and restored by copying a file backup, so
+  it was never read or printed. Host verified healthy afterwards: 6 rooms, no
+  leftover config artefacts.
+- Still outstanding and *doable* without extra hardware: Eve history on the
+  default path (needs Eve.app).
 
 ---
 
