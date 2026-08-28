@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 // Polling cycle: state changes between polls must propagate into
 // `this.room[roomId]` so the platform's per-accessory snapshot can refresh.
 

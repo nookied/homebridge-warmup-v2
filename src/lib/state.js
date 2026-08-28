@@ -11,6 +11,10 @@
 //                                          | fil_pilote | gradual | relay | previous
 
 function deriveCurrentHeatingState(room) {
+  // No thermostat paired to this Room — there is no relay to be closed, so
+  // reporting HEAT (which the temp-delta fallback below would do, since a
+  // Room still carries currentTemp/targetTemp) would be a fiction.
+  if (room.hasThermostat === false) return 0;
   // OFF only when the device is genuinely off — even when heating to a low
   // setpoint (`anti_frost`, `holiday`), the relay can still be active.
   if (room.runMode === 'off') return 0;

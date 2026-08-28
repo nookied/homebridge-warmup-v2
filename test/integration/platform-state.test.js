@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 // Platform-level regressions for the dynamic-platform wiring (v3.1+):
 // - Cached accessories are honoured (`configureAccessory`)
 // - Live discovery registers new + unregisters stale accessories
@@ -150,6 +148,10 @@ function fakeLog() {
   return { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
 }
 
+// Mirrors SLIDER_DEBOUNCE_MS in src/index.js — the trailing-edge window that
+// coalesces a slider drag into one API call.
+const SLIDER_DEBOUNCE_MS = 300;
+
 function room(roomId, roomName, overrides = {}) {
   return {
     roomId, roomName,
@@ -169,11 +171,13 @@ describe('warmup4ie dynamic platform', () => {
   let clients;
   let historyServices;
   let api;
+  let platforms;
 
   function instantiatePlugin() {
     jest.resetModules();
     clients = [];
     historyServices = [];
+    platforms = [];
 
     jest.doMock('../../src/lib/warmup4ie', () => {
       MockWarmup4IE = jest.fn(function (options, callback) {
@@ -221,11 +225,25 @@ describe('warmup4ie dynamic platform', () => {
     api = fakeHomebridge();
     const plugin = require('../../src/index.js');
     plugin(api);
-    PlatformCtor = api.calls.register[0].ctor;
+    // Wrap the real constructor so every platform a test builds is torn down
+    // in afterEach. A failing assertion skips the test's own trailing
+    // `platform.shutdown()`, and the leaked poll interval then keeps the
+    // whole jest run alive until it is force-killed — turning one clear
+    // assertion failure into a hung suite with no output.
+    const RawPlatformCtor = api.calls.register[0].ctor;
+    PlatformCtor = function (...args) {
+      const platform = new RawPlatformCtor(...args);
+      platforms.push(platform);
+      return platform;
+    };
+    PlatformCtor.prototype = RawPlatformCtor.prototype;
   }
 
   beforeEach(() => instantiatePlugin());
   afterEach(() => {
+    platforms.forEach((platform) => {
+      try { platform.shutdown(); } catch { /* already shut down */ }
+    });
     jest.dontMock('../../src/lib/warmup4ie');
     jest.dontMock('fakegato-history');
   });
@@ -869,6 +887,165 @@ describe('warmup4ie dynamic platform', () => {
     expect(cached.getService(api.hap.Service.TemperatureSensor)).toBeUndefined();
     // No dangling link to the now-removed service.
     expect(cachedThermo.linkedServices).not.toContain(cachedTemp);
+
+    platform.shutdown();
+  });
+
+  test('room missing every temperature field: no NaN reaches HAP', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    const thermo = accessory.getService(api.hap.Service.Thermostat);
+    const air = accessory.getService(api.hap.Service.TemperatureSensor);
+    const targetTemp = thermo.getCharacteristic(api.hap.Characteristic.TargetTemperature);
+    const currentTemp = thermo.getCharacteristic(api.hap.Characteristic.CurrentTemperature);
+    const airTemp = air.getCharacteristic(api.hap.Characteristic.CurrentTemperature);
+
+    // `normalizeRoom` defaults these, so reaching the platform with them
+    // still missing means either a cached room from an older release or a
+    // future schema change. Either way HAP must not see NaN — it rejects
+    // non-finite values and the accessory goes dead in HomeKit.
+    platform.thermostats.room[100001] = room(100001, 'Unpaired', {
+      minTemp: undefined, maxTemp: undefined,
+      airTemp: null, currentTemp: undefined, targetTemp: undefined
+    });
+    [targetTemp, currentTemp, airTemp].forEach((c) => c.updateValue.mockClear());
+
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const pushed = [targetTemp, currentTemp, airTemp]
+      .flatMap((c) => c.updateValue.mock.calls.map(([v]) => v));
+    expect(pushed.every((v) => typeof v !== 'number' || Number.isFinite(v))).toBe(true);
+    expect(pushed).not.toContain(NaN);
+    // The air probe reported nothing, so we leave the characteristic alone
+    // rather than inventing a 0 °C reading HomeKit would render as real.
+    expect(airTemp.updateValue).not.toHaveBeenCalled();
+
+    platform.shutdown();
+    jest.useRealTimers();
+  });
+
+  test('unusable temperature range: bounds left at HomeKit defaults, warning logged', async () => {
+    const log = fakeLog();
+    const platform = new PlatformCtor(
+      log, { username: 'one@example.com', password: 'p' }, api
+    );
+    // Inverted range — HAP throws when minValue >= maxValue, which would
+    // take the whole accessory down during setup.
+    MockWarmup4IE.mockImplementationOnce(function (options, callback) {
+      this.room = [];
+      this._locId = 12345;
+      this.getStatus = jest.fn(async () => this.room.filter(Boolean));
+      this.room[100001] = room(100001, 'Inverted', { minTemp: 300, maxTemp: 50 });
+      clients.push(this);
+      queueMicrotask(() => callback(null, [this.room[100001]]));
+    });
+
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    const targetTemp = accessory
+      .getService(api.hap.Service.Thermostat)
+      .getCharacteristic(api.hap.Characteristic.TargetTemperature);
+
+    expect(targetTemp.setProps).not.toHaveBeenCalled();
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('unusable temperature range'),
+      'Inverted', 300, 50
+    );
+
+    platform.shutdown();
+  });
+
+  test('nullable temperature fields: absent readings are skipped, not shown as 0 °C', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    const thermo = accessory.getService(api.hap.Service.Thermostat);
+    const current = thermo.getCharacteristic(api.hap.Characteristic.CurrentTemperature);
+    const target = thermo.getCharacteristic(api.hap.Characteristic.TargetTemperature);
+
+    // Every temperature in the GraphQL schema is nullable. `Number(null)` is
+    // 0 — not NaN — so a null slips past a plain finite check and lands in
+    // HomeKit as a genuine 0 °C reading. `normalizeRoom` maps it to null and
+    // the platform skips the write.
+    platform.thermostats.room[100001] = room(100001, 'Nulls', {
+      currentTemp: null, targetTemp: null
+    });
+    current.updateValue.mockClear();
+    target.updateValue.mockClear();
+
+    jest.advanceTimersByTime(platform.refresh * 1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(current.updateValue).not.toHaveBeenCalled();
+    expect(target.updateValue).not.toHaveBeenCalled();
+
+    platform.shutdown();
+    jest.useRealTimers();
+  });
+
+  test('writes for one accessory are serialized, so the last one wins', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(), { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    const target = accessory
+      .getService(api.hap.Service.Thermostat)
+      .getCharacteristic(api.hap.Characteristic.TargetTemperature);
+
+    // The debounce entry is cleared before its request is awaited, so a
+    // second adjustment during the first round trip starts a second request.
+    // With an unlucky pair of latencies they land out of order and the device
+    // is left obeying the older setpoint — silently, since the next poll then
+    // reads that value back. Order must not depend on response timing.
+    // The first round trip must still be in flight when the second one is
+    // issued, and must finish after it — otherwise the two never overlap and
+    // the test passes against the unfixed code too.
+    //   t=0    set 20      t=300  flush → request A (400 ms) → would land t=700
+    //   t=320  set 22      t=620  flush → request B (0 ms)   → would land t=620
+    // Unserialized that lands [22, 20]; serialized, B waits for A.
+    const landed = [];
+    let call = 0;
+    clients[0].setTargetTemperature = jest.fn((roomId, value) => {
+      const delay = call++ === 0 ? 400 : 0;
+      return new Promise((r) => setTimeout(() => { landed.push(value); r(); }, delay));
+    });
+
+    const first = target._invokeSet(20);
+    await new Promise((r) => setTimeout(r, SLIDER_DEBOUNCE_MS + 20));
+    const second = target._invokeSet(22);
+    await Promise.allSettled([first, second]);
+    await new Promise((r) => setTimeout(r, 900));
+
+    expect(landed).toEqual([20, 22]);
 
     platform.shutdown();
   });

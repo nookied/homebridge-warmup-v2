@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 // A failed poll/write must not poison subsequent calls. Cache state must be
 // preserved across failures, and the next successful call must converge.
 // Also covers the 401 / token-expired → re-login → retry path.

@@ -1,0 +1,29 @@
+{
+  "data": {
+    "user": {
+      "owned": [
+        {
+          "id": 12345,
+          "name": "Primary Residence",
+          "rooms": [
+            {
+              "id": 100001,
+              "roomName": "Unpaired Room",
+              "runMode": "schedule",
+              "roomMode": "program",
+              "targetTemp": 210,
+              "currentTemp": 205,
+              "overrideDur": 0,
+              "overrideTemp": 0,
+              "fixedTemp": 200,
+              "energy": "0",
+              "cost": "0",
+              "total": "0",
+              "thermostat4ies": []
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

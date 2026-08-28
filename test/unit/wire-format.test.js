@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 // Wire-format builders: each `setX(...)` method must produce the expected
 // GraphQL mutation + variables. Verified against the schema dump at
 // jondarrer/warmup-api/warmup-schema.graphql (M3, v3.0.0).

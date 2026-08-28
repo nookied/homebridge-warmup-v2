@@ -101,6 +101,12 @@ const GQL_CANCEL_HOLIDAY = 'mutation CancelHoliday($lid: Int!) { cancelHoliday(l
 const HOLIDAY_DEFAULT_TEMP_C = 5;
 const HOLIDAY_DEFAULT_DAYS = 365;
 
+// Fallback setpoint bounds, in tenths of °C, for a Room whose thermostat
+// payload is missing (`thermostat4ies: []`). 5–30 °C is the range Warmup's
+// own devices ship with and matches what real payloads report.
+const DEFAULT_MIN_TEMP = 50;
+const DEFAULT_MAX_TEMP = 300;
+
 // `deviceAdvanced` is the kitchen-sink mutation for per-thermostat config —
 // child lock, brightness, sensor offsets, etc. We currently only use it for
 // child lock (M6 batch 5). Other args are sent as-is when the caller passes
@@ -110,7 +116,30 @@ const GQL_DEVICE_ADVANCED_LOCK = 'mutation DeviceAdvancedLock($lid: Int!, $rid: 
 // Token-related errors that should trigger one re-auth + retry. Includes
 // HTTP 401, REST status.code 100/102/103, and any GraphQL error message
 // containing token/auth keywords.
+//
+// The REST `"code"` branch is vestigial — since v3.0 the REST surface is
+// used only by `_login`, and `_isTokenError` is consulted only for errors
+// thrown out of `_graphql`, which can never produce a `Warmup API:` message.
+// Kept because it costs nothing and documents the v2-era contract.
 const TOKEN_ERROR_PATTERN = /Warmup HTTP 401|"code":\s*(?:100|102|103)|Warmup GraphQL: .*\b(token|auth|unauthorized|forbidden)/i;
+
+// Warmup's REST error payloads carry the useful signal in
+// `response.errorCode`, not in any prose field — a wrong password comes back
+// as `{"status":{"result":"error"},"response":{"errorCode":101}}` with no
+// message anywhere. Without a mapping the Homebridge log showed the
+// useless `Warmup API: {"result":"error"}` for the single most common
+// failure mode users hit.
+// Only codes confirmed against the live API get prose. Everything else is
+// reported by number: a wrong guess ("access token expired" for something
+// else entirely) would send the user down the wrong path, and the raw code
+// is still searchable. The 100/102/103 that TOKEN_ERROR_PATTERN lists are
+// deliberately absent — they come from the v2-era authenticated REST calls
+// we no longer make, and `userLogin` has never been observed returning them.
+const REST_ERROR_MESSAGES = {
+  // Confirmed 2026-08-28 by logging in with a deliberately invalid
+  // email/password pair.
+  101: 'invalid email or password'
+};
 
 class Warmup4IE {
   constructor(options, callback) {
@@ -167,8 +196,7 @@ class Warmup4IE {
   async _rest(body) {
     const json = await this._fetch(REST_URL, body);
     if (json.status && json.status.result !== 'success') {
-      const detail = json.message || json.status.message || JSON.stringify(json.status);
-      throw new Error(`Warmup API: ${detail}`);
+      throw new Error(`Warmup API: ${restErrorDetail(json)}`);
     }
     return json;
   }
@@ -327,16 +355,34 @@ function normalizeRoom(r) {
     roomName: r.roomName,
     runMode: r.runMode,
     roomMode: r.roomMode,
-    targetTemp: r.targetTemp,
-    currentTemp: r.currentTemp,
+    // Whether a thermostat is actually paired to this Room. A Room with an
+    // empty `thermostat4ies` is real but has no hardware behind it, so every
+    // reading below is absent and nothing can be controlled — the platform
+    // uses this to report the accessory as inactive rather than inventing a
+    // plausible-looking idle thermostat.
+    hasThermostat: Boolean(r.thermostat4ies && r.thermostat4ies[0]),
+    // Every temperature is normalized to a Number of tenths of °C, or `null`
+    // when genuinely absent. GraphQL types these inconsistently (Int on Room,
+    // String on Thermostat4iE) and all of them are nullable, so without this
+    // a null would coerce to 0 (`Number(null) === 0`) and surface in HomeKit
+    // as a real 0 °C reading. `null` lets the platform skip the write.
+    targetTemp: tenths(r.targetTemp),
+    currentTemp: tenths(r.currentTemp),
     // airTemp lives on the Thermostat4iE in GraphQL (as a String). Falling
-    // back to Room.airTemp if the schema ever moves it.
-    airTemp: t.airTemp || r.airTemp,
-    minTemp: t.minTemp,
-    maxTemp: t.maxTemp,
+    // back to Room.airTemp if the schema ever moves it. `null` (rather than
+    // undefined) when absent, so the platform can tell "no reading" apart
+    // from a real 0 and skip the HomeKit write instead of pushing NaN.
+    airTemp: tenths(t.airTemp ?? r.airTemp),
+    // A Room with no paired thermostat (created in the Warmup app but not
+    // yet commissioned, or mid-RMA) has an empty `thermostat4ies`, so these
+    // come back undefined. They feed HomeKit's TargetTemperature bounds, and
+    // `undefined / 10` is NaN — which HAP rejects, leaving the accessory in a
+    // broken state. Fall back to the range Warmup's own devices ship with.
+    minTemp: tenths(t.minTemp) ?? DEFAULT_MIN_TEMP,
+    maxTemp: tenths(t.maxTemp) ?? DEFAULT_MAX_TEMP,
     overrideDur: r.overrideDur,
-    overrideTemp: r.overrideTemp,
-    fixedTemp: r.fixedTemp,
+    overrideTemp: tenths(r.overrideTemp),
+    fixedTemp: tenths(r.fixedTemp),
     energy: r.energy,
     cost: r.cost,
     // Cumulative energy since first install — Eve.app reads this for the
@@ -348,12 +394,13 @@ function normalizeRoom(r) {
     //   - `floor1Temp`/`floor2Temp` — exposed as a separate sensor in M6+.
     //   - `deviceSN` — could replace `warmup4ie-<roomId>` as SerialNumber, but
     //     would force HomeKit to re-pair existing accessories. Not worth it.
-    //   - `lastPoll` — drives `StatusActive` (offline detection) in M6+.
-    //   - `parameters { outputStatus }` (relay state) is not in the GraphQL
-    //     query yet — re-adding caused a 409 during v3 development; M6 will
-    //     try again carefully and use it for `CurrentHeatingCoolingState`.
-    floor1Temp: t.floor1Temp,
-    floor2Temp: t.floor2Temp,
+    //   - `lastPoll` — drives `StatusActive` (offline detection) since v3.4.
+    //   - `parameters { outputStatus }` (relay state) has been in the query
+    //     since v3.4 and drives `CurrentHeatingCoolingState`. The 409 seen
+    //     during v3 development turned out to be specific to
+    //     `user.location(id:)`, not to the `parameters` field.
+    floor1Temp: tenths(t.floor1Temp),
+    floor2Temp: tenths(t.floor2Temp),
     isFaultAir: t.isFaultAir,
     isFaultFloor1: t.isFaultFloor1,
     isFaultFloor2: t.isFaultFloor2,
@@ -372,6 +419,33 @@ function normalizeRoom(r) {
     // currentTemp<targetTemp heuristic when present.
     outputStatus: typeof params.outputStatus === 'number' ? params.outputStatus : null
   };
+}
+
+// Build the human half of a `Warmup API: …` error from a failed REST
+// response. Prefers prose the API actually sent, then our own mapping of
+// `response.errorCode`, and always appends the raw code when there is one so
+// an unmapped failure is still diagnosable from the Homebridge log.
+function restErrorDetail(json) {
+  const status = (json && json.status) || {};
+  // Modern payloads carry `response.errorCode`; the v2-era REST surface put
+  // it at `status.code` (the shape TOKEN_ERROR_PATTERN still matches on).
+  // `??` rather than `||` so a legitimate code 0 is not discarded.
+  const code = (json && json.response && json.response.errorCode) ?? status.code;
+  const prose = json.message || status.message || REST_ERROR_MESSAGES[code];
+  if (prose && code != null) return `${prose} (errorCode ${code})`;
+  if (prose) return prose;
+  if (code != null) return `errorCode ${code}`;
+  return JSON.stringify(status);
+}
+
+// Coerce a Warmup temperature field to a number of tenths of °C, or `null`
+// when it is absent/unparseable. Temperatures arrive as plain numbers on
+// `Room` (195) but as strings on `Thermostat4iE` ("195"), so everything the
+// platform divides by 10 goes through here first.
+function tenths(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function toWarmupTemperature(value) {

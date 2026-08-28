@@ -1,4 +1,4 @@
 {
-  "status": { "result": "error", "code": 100, "message": "Invalid credentials" },
-  "message": "Invalid credentials"
+  "status": { "result": "error" },
+  "response": { "errorCode": 101 }
 }

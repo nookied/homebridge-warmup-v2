@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 // LIVE API tests — opt-in. Real credentials, real `api.warmup.com` calls.
 // Skipped unless WARMUP_LIVE_TEST=1 (and WARMUP_USERNAME/PASSWORD are set).
 //
@@ -52,6 +50,33 @@ liveDescribe('Warmup4IE — live API', () => {
           expect(typeof room.roomId).toBe('number');
           expect(typeof room.roomName).toBe('string');
           expect(WARMUP_RUN_MODES).toContain(room.runMode);
+          // Type-shape assertions against the live wire. Offline fixtures
+          // only ever prove we still agree with ourselves; this is the one
+          // place a change on Warmup's side shows up.
+          //
+          // Note on drift coverage: a field being *removed* from the schema
+          // already fails loudly, because the query itself is rejected and
+          // bootstrap throws before we get here. What these catch is a field
+          // that still resolves but changes shape — the case that would
+          // otherwise degrade a HomeKit feature silently.
+          //
+          // Every temperature must be a Number of tenths, or null when the
+          // reading is genuinely absent. Note `Number.isFinite(Number(v))`
+          // would NOT do: `Number(null)` is 0, so a null would pass.
+          [room.currentTemp, room.targetTemp, room.airTemp,
+            room.floor1Temp, room.floor2Temp]
+            .forEach((v) => expect(v === null || typeof v === 'number').toBe(true));
+          // Bounds are defaulted when absent, so they are always usable.
+          expect(typeof room.minTemp).toBe('number');
+          expect(typeof room.maxTemp).toBe('number');
+          expect(room.minTemp).toBeLessThan(room.maxTemp);
+          // Fields added to the query in v3.4–v3.7, normalized to a fixed
+          // type. `lock`/`outputStatus` are legitimately null on devices
+          // that don't report them, so null is accepted — a *type* change
+          // (say, lock becoming a string) is what would break us.
+          expect(room.lock === null || typeof room.lock === 'boolean').toBe(true);
+          expect(room.outputStatus === null || typeof room.outputStatus === 'number').toBe(true);
+          expect(room.hasThermostat).toBe(true);
         });
         resolve(c);
       });

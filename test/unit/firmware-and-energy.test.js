@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 // Pure helper tests for HomeKit metadata values. Import the shipped helper
 // module directly so the test fails if production logic drifts.
 
@@ -50,16 +48,26 @@ describe('deriveTotalConsumption', () => {
     expect(deriveTotalConsumption({ total: '42.7' })).toBe(42.7);
   });
 
-  test('negative or non-finite total → 0', () => {
-    expect(deriveTotalConsumption({ total: -5 })).toBe(0);
-    expect(deriveTotalConsumption({ total: NaN })).toBe(0);
-    expect(deriveTotalConsumption({ total: Infinity })).toBe(0);
-    expect(deriveTotalConsumption({ total: 'not a number' })).toBe(0);
+  // A real zero is a real reading and must still be published — it is only
+  // *unknown* values that return null. Distinguishing the two is the whole
+  // point: this feeds a cumulative counter, so writing 0 for "don't know"
+  // collapses Eve's long-term graph to the origin and then jumps back.
+  test('a genuine zero is still reported as 0, not null', () => {
+    expect(deriveTotalConsumption({ total: 0 })).toBe(0);
+    expect(deriveTotalConsumption({ total: '0' })).toBe(0);
   });
 
-  test('missing total → 0', () => {
-    expect(deriveTotalConsumption({})).toBe(0);
-    expect(deriveTotalConsumption(null)).toBe(0);
-    expect(deriveTotalConsumption(undefined)).toBe(0);
+  test('negative or non-finite total → null (skip the write)', () => {
+    expect(deriveTotalConsumption({ total: -5 })).toBeNull();
+    expect(deriveTotalConsumption({ total: NaN })).toBeNull();
+    expect(deriveTotalConsumption({ total: Infinity })).toBeNull();
+    expect(deriveTotalConsumption({ total: 'not a number' })).toBeNull();
+  });
+
+  test('missing total → null (skip the write)', () => {
+    expect(deriveTotalConsumption({})).toBeNull();
+    expect(deriveTotalConsumption({ total: null })).toBeNull();
+    expect(deriveTotalConsumption(null)).toBeNull();
+    expect(deriveTotalConsumption(undefined)).toBeNull();
   });
 });

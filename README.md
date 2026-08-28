@@ -38,6 +38,10 @@ Both regressions were verified byte-for-byte against the [Python reference imple
 
 ## Install
 
+**Requires** Node.js 22, 24, or 26 and Homebridge 1.6+ or 2.x. Node 18 and 20
+are past end-of-life and Homebridge 2.4 no longer runs on them; if you are
+still on one, upgrade Node before installing.
+
 ```bash
 sudo npm install -g homebridge-warmup4ie-v2
 ```

@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 // Regression test for v3.9.1.
 //
 // HAP-NodeJS 2.1.5 (shipped with Homebridge 2.0.1) does not expose

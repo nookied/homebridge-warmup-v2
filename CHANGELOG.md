@@ -7,6 +7,182 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.12.0] — unreleased
+
+Maintenance release out of a full repo health pass. No config keys change
+and no HomeKit accessory shape changes; the version is MINOR rather than
+PATCH because the supported Node range moves.
+
+### Changed
+
+- **Supported Node versions are now `^22 || ^24 || ^26`** (was
+  `^18.20.4 || ^20.15.1 || ^22 || ^24`). Node 18 and 20 are both past
+  end-of-life, and Homebridge 2.4 itself requires `^22 || ^24 || ^26`, so
+  the old range advertised support for runtimes current Homebridge will
+  not start on — while omitting Node 26, which is what Homebridge runs on
+  today. Users on Node 26 were seeing a spurious engine-mismatch warning.
+  The CI matrix moves to `22 / 24 / 26` to match.
+- **Failed logins now say what went wrong.** Warmup's REST error payload
+  carries its signal in `response.errorCode` and includes no prose at all
+  — a wrong password returns
+  `{"status":{"result":"error"},"response":{"errorCode":101}}`. The old
+  code looked only for `message` / `status.message` and fell through to
+  `JSON.stringify(status)`, so the Homebridge log showed
+  `Warmup API: {"result":"error"}` for the single most common failure
+  users hit. It now reads `Warmup API: invalid email or password
+  (errorCode 101)`, with unmapped codes still reported by number. Only code
+  101 gets prose, because it is the only one confirmed against the live API
+  — a confidently wrong label ("access token expired" for something else)
+  would send the user down the wrong path, and the raw number stays
+  searchable either way. The legacy `status.code` location is read as well
+  as the modern `response.errorCode`.
+
+### Fixed
+
+- **Nullable fields no longer surface as invented readings.** Every
+  temperature in the GraphQL schema is nullable, and `Number(null)` is `0`,
+  not `NaN` — so a null `currentTemp` sailed past every finite check and
+  rendered in HomeKit as a genuine **0 °C**, while a null `targetTemp` was
+  clamped up to the device minimum and shown as a confident **5 °C**.
+  `normalizeRoom` now maps absent temperatures to `null` and the platform
+  skips the characteristic write, leaving the last known value in place. A
+  real `0` is still published — the point is to tell "zero" apart from
+  "don't know", which the old coercion could not.
+- **`effectiveTargetTemp` no longer clamps against a nonsense floor.** With
+  an inverted range (`minTemp` above `maxTemp`) it raised a perfectly good
+  21 °C setpoint to 30 °C; it now clamps only against a sane floor and
+  returns `null` when there is no target to show.
+- **Eve's energy graph no longer collapses to the origin.**
+  `deriveTotalConsumption` returned `0` for an absent or unusable `total`.
+  That feeds a *cumulative* counter, so one null poll (the field is
+  nullable, and pre-v3.5 devices never send it) dropped the long-term graph
+  to zero and jumped back on the next poll. It now returns `null` and the
+  write is skipped. A genuine `0` is still reported as `0`.
+- **A room with no paired thermostat no longer claims to be heating.** Such
+  a Room still carries `currentTemp`/`targetTemp`, so the temperature-delta
+  fallback confidently reported HEAT for a room with no relay to close, and
+  `StatusActive` reported it as a healthy device. Both now key off a new
+  `hasThermostat` flag: the accessory reports idle and inactive, which is
+  what is actually true, instead of looking functional right up until a
+  control silently fails.
+- **Writes for one accessory are serialized.** The debounce entry was
+  deleted *before* its request was awaited, so a second slider adjustment
+  made during the first round trip started a second concurrent request — and
+  a mode tap could race a slider drag freely. With an ordinary pair of
+  latencies the responses land out of order, the device is left obeying the
+  older setpoint, and the next poll reads that value back, so the user's
+  change disappears with no error anywhere. Reproduced end-to-end (asked for
+  22 °C, device ended at 20 °C) before fixing. All three per-accessory
+  writes — setpoint, mode, child lock — now go through one ordered queue.
+- `pushLocationSwitchStates` guarded `platform.thermostats` on one line and
+  then dereferenced `._locId` unguarded on the next.
+- **A room with no paired thermostat no longer pushes `NaN` into HomeKit.**
+  A Room created in the MyHeating app but not yet commissioned (or mid-RMA)
+  comes back with `thermostat4ies: []`, so every thermostat-level field is
+  absent. `minTemp`/`maxTemp` feed `TargetTemperature`'s bounds, and
+  `undefined / 10` is `NaN` — HAP rejects non-finite values, leaving the
+  accessory broken in HomeKit. Confirmed by tracing the real platform code:
+  four separate HAP calls received `NaN` (`setProps` min and max,
+  `TargetTemperature.updateValue`, and the air sensor's
+  `CurrentTemperature.updateValue`). `normalizeRoom` now falls back to the
+  5–30 °C range Warmup's own devices ship with, and the platform skips any
+  characteristic write whose value is not finite rather than substituting a
+  fabricated `0 °C` that HomeKit would render as a real reading.
+- Setpoint bounds are only narrowed when the device reports a usable range;
+  an inverted or non-numeric range logs a warning and leaves HomeKit's
+  defaults in place instead of throwing during accessory setup.
+- No fakegato history entry is recorded when either temperature is
+  non-finite, so a bad poll can't write `NaN` into the Eve graph data.
+
+### Security
+
+- `npm audit` is clean (was 4 advisories: 1 low, 1 moderate, 2 high). The
+  only one that reached the production tree was `qs` (moderate DoS) via
+  `fakegato-history → googleapis → googleapis-common`; it resolves to a
+  patched `qs` with no change to our direct dependencies. The vulnerable
+  path was never reachable here in any case — it needs fakegato's Google
+  Drive backend, and the plugin hardcodes `storage: 'fs'`. The other three
+  were dev-only (jest/eslint transitives).
+
+### Internal
+
+- `eslint` 8.57.1 → ^9. v8 is end-of-life and npm printed a deprecation on
+  every install; `@eslint/js` was already declared at `^9`, so the two are
+  now on the same major.
+- Dropped the redundant `/* eslint-env jest */` directive from all 11 test
+  files. Flat config already injects the jest globals, and ESLint 9 warns
+  on the directive because it becomes a hard error in v10. `npm run lint`
+  is now silent.
+- **`test/fixtures/graphql.owned.json` refreshed to the current payload.**
+  It had not been updated since v3.2 and was missing every field added
+  since: `total` (v3.5, Eve energy), `appFw` / `wifiFw` (v3.5, firmware),
+  and `parameters { outputStatus lock }` (v3.4 relay signal, v3.7 child
+  lock). All four are in the production query, so three releases' worth of
+  wire→normalize→HomeKit plumbing had no integration coverage — visible as
+  the 81% branch coverage in `normalizeRoom`. The Bathroom room now reports
+  `outputStatus: 0` while sitting below its setpoint, which pins the
+  behaviour that the real relay signal beats the old temperature-delta
+  heuristic; its `appFw` is `null` to exercise the FirmwareRevision
+  fallback.
+- New `test/fixtures/graphql.owned.unpaired.json` covering the empty
+  `thermostat4ies` case, plus tests at both layers: `normalizeRoom` returns
+  usable defaults, and the platform pushes no `NaN` to HAP. The latter
+  fails against the pre-fix code, so it is a real regression test — the
+  existing HAP shim stubs `setProps`/`updateValue` as no-op `jest.fn()`s,
+  which is why nothing caught this before.
+- `test/fixtures/userLogin.error.json` replaced with the exact body the
+  live API returns for bad credentials. The old fixture invented a
+  `status.message` the API never sends, which is what let the useless
+  error message ship — the bootstrap test asserted only `/Warmup API/`
+  and now asserts the full decoded string.
+- `normalizeRoom` routes temperatures through a `tenths()` helper, so
+  `airTemp` is a Number of tenths (was a String, since `Thermostat4iE`
+  types it as `String` on the wire) and every temperature field the
+  platform divides by 10 has one consistent type. `null` now means "no
+  reading" and is distinguishable from a real `0`.
+- Noted in-source that the REST `"code"` branch of `TOKEN_ERROR_PATTERN`
+  is unreachable: since v3.0 the REST surface is login-only, and
+  `_isTokenError` is consulted only for errors out of `_graphql`.
+- Corrected a stale comment in `normalizeRoom` claiming
+  `parameters { outputStatus }` was not yet in the GraphQL query — it has
+  been since v3.4.
+- New `_rest` error-decoding tests covering all five payload shapes the
+  gateway can return.
+- `normalizeRoom` gained a `hasThermostat` flag. The state derivers test it
+  with `=== false`, so rooms cached from an earlier release (and the
+  synthetic rooms in the test suite), which have no such field, keep their
+  previous behaviour rather than silently flipping to "inactive".
+- Live-test assertions rewritten as type-shape checks. The previous ones
+  used `Number.isFinite(Number(v))`, which passes for `null` (`Number(null)`
+  is 0), and `toHaveProperty`, which is vacuous because `normalizeRoom`
+  always sets the key — so both claimed a drift-detection guarantee they did
+  not provide. Field *removal* was already covered anyway: the query itself
+  is rejected and bootstrap throws. What the new assertions actually catch
+  is a field that still resolves but changes type.
+- `platform-state.test.js` now tears every platform it builds down in
+  `afterEach`. Tests called `platform.shutdown()` as their last statement,
+  which a failing assertion skips — the leaked poll interval then kept jest
+  alive until it was force-killed, turning a clear one-line assertion
+  failure into a hung suite with no output. Hit while verifying the
+  write-ordering fix.
+- 140 offline tests pass (up from 127 in v3.11.0). Branch coverage
+  74.5% → 79.4% overall; `src/lib/warmup4ie.js` 81.1% → 91.4%;
+  `src/lib/state.js` and `src/lib/metadata.js` at 100%.
+
+### Known, not addressed
+
+- `fakegato-history@0.6.7` declares `googleapis` as a hard dependency and
+  requires its Google Drive module at the top level of
+  `fakegato-storage.js`, so every Homebridge start loads it even though
+  the plugin only ever uses `storage: 'fs'`. Measured: **194 MB** on disk,
+  **~97 MB RSS** and **~600 ms** added to startup (on a development Mac;
+  a Raspberry Pi is several times slower), 1039 modules. fakegato is
+  effectively unmaintained (0.6.7 is latest, last published 2025-03-24),
+  so the options are `patch-package` to make that require lazy, or living
+  with it. Deferred pending a decision.
+
+---
+
 ## [3.11.0] — 2026-05-06
 
 Adds the **`disableAirSensor`** opt-out toggle, the actual fix for the

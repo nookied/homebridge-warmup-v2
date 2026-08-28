@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 // Truth tables for the pure HomeKit state derivers. These power both the
 // initial accessory build and every subsequent poll, so a regression here
 // silently shows wrong heating/idle state in HomeKit.
@@ -62,6 +60,24 @@ describe('deriveCurrentHeatingState', () => {
       expect(deriveCurrentHeatingState({
         runMode: 'off', currentTemp: 150, targetTemp: 200, outputStatus: 1
       })).toBe(0);
+    });
+
+    // A Room with no thermostat paired still carries currentTemp/targetTemp,
+    // so the temp-delta fallback would confidently report "heating" for a
+    // room that has no relay to close.
+    test('hasThermostat=false → idle, whatever the temperatures say', () => {
+      expect(deriveCurrentHeatingState({
+        runMode: 'schedule', currentTemp: 150, targetTemp: 200, hasThermostat: false
+      })).toBe(0);
+    });
+
+    test('hasThermostat absent (cached/older rooms) keeps the old behaviour', () => {
+      expect(deriveCurrentHeatingState({
+        runMode: 'schedule', currentTemp: 150, targetTemp: 200
+      })).toBe(1);
+      expect(deriveCurrentHeatingState({
+        runMode: 'schedule', currentTemp: 150, targetTemp: 200, hasThermostat: true
+      })).toBe(1);
     });
 
     test('outputStatus = null falls through to the temp-delta heuristic', () => {

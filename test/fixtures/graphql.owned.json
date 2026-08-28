@@ -18,8 +18,11 @@
               "fixedTemp": 200,
               "energy": "1.23",
               "cost": "0.21",
+              "total": "345.678",
               "thermostat4ies": [{
                 "deviceSN": "ABC123",
+                "appFw": "29.175",
+                "wifiFw": "2.1.0",
                 "airTemp": "215",
                 "floor1Temp": "220",
                 "floor2Temp": "0",
@@ -28,7 +31,8 @@
                 "lastPoll": 2,
                 "isFaultAir": false,
                 "isFaultFloor1": false,
-                "isFaultFloor2": false
+                "isFaultFloor2": false,
+                "parameters": { "outputStatus": 1, "lock": 0 }
               }]
             },
             {
@@ -43,8 +47,11 @@
               "fixedTemp": 200,
               "energy": "0.45",
               "cost": "0.07",
+              "total": "128.400",
               "thermostat4ies": [{
                 "deviceSN": "DEF456",
+                "appFw": "29.175",
+                "wifiFw": "2.1.0",
                 "airTemp": "195",
                 "floor1Temp": "180",
                 "floor2Temp": "0",
@@ -53,7 +60,8 @@
                 "lastPoll": 1,
                 "isFaultAir": false,
                 "isFaultFloor1": false,
-                "isFaultFloor2": false
+                "isFaultFloor2": false,
+                "parameters": { "outputStatus": 0, "lock": 1 }
               }]
             },
             {
@@ -68,8 +76,11 @@
               "fixedTemp": 200,
               "energy": "2.10",
               "cost": "0.35",
+              "total": "512.000",
               "thermostat4ies": [{
                 "deviceSN": "GHI789",
+                "appFw": null,
+                "wifiFw": "1.9.2",
                 "airTemp": "225",
                 "floor1Temp": "220",
                 "floor2Temp": "0",
@@ -78,7 +89,8 @@
                 "lastPoll": 0,
                 "isFaultAir": false,
                 "isFaultFloor1": false,
-                "isFaultFloor2": false
+                "isFaultFloor2": false,
+                "parameters": { "outputStatus": 0, "lock": 0 }
               }]
             }
           ]

@@ -135,6 +135,10 @@ function warmup4iePlatform(log, config = {}, api) {
   this.accessories = new Map();
   // Map<UUID, Map<char-name, PendingDebounce>> — per-accessory debounce state.
   this._debouncers = new Map();
+  // Map<UUID, Promise> — tail of the serialized cloud-write chain for each
+  // accessory. See enqueueAccessoryWrite: without it two writes for the same
+  // room can be in flight simultaneously and land out of order.
+  this._writeChains = new Map();
   this._pollTimer = null;
 
   if (api && typeof api.on === 'function') {
@@ -235,6 +239,7 @@ warmup4iePlatform.prototype = {
         stale.push(accessory);
         this.accessories.delete(accUuid);
         this._debouncers.delete(accUuid);
+        this._writeChains.delete(accUuid);
       }
     }
     if (stale.length) {
@@ -287,6 +292,7 @@ warmup4iePlatform.prototype = {
       }
     }
     this._debouncers.clear();
+    this._writeChains.clear();
   }
 };
 
@@ -363,9 +369,22 @@ function attachAccessoryServices(platform, accessory, room) {
     .setProps({ validValues: [0, 1, 3] })
     .onSet((value) => handleTargetHeatingCoolingSet(platform, accessory, value));
 
-  thermo.getCharacteristic(Characteristic.TargetTemperature)
-    .setProps({ minValue: room.minTemp / 10, maxValue: room.maxTemp / 10 })
-    .onSet((value) => handleTargetTemperatureSet(platform, accessory, value));
+  // Only narrow the bounds when the device actually reported a sane range.
+  // `normalizeRoom` already defaults a missing range, so this is belt-and-
+  // braces against an inverted or non-numeric one — HAP throws on NaN bounds
+  // and on minValue >= maxValue, which would take the accessory down.
+  const targetTempChar = thermo.getCharacteristic(Characteristic.TargetTemperature);
+  const minC = room.minTemp / 10;
+  const maxC = room.maxTemp / 10;
+  if (Number.isFinite(minC) && Number.isFinite(maxC) && minC < maxC) {
+    targetTempChar.setProps({ minValue: minC, maxValue: maxC });
+  } else {
+    platform.log.warn(
+      '%s reported an unusable temperature range (min %s, max %s) — leaving HomeKit defaults in place',
+      room.roomName, room.minTemp, room.maxTemp
+    );
+  }
+  targetTempChar.onSet((value) => handleTargetTemperatureSet(platform, accessory, value));
 
   thermo.getCharacteristic(Characteristic.CurrentTemperature)
     .setProps({ minValue: -100, maxValue: 100 });
@@ -454,14 +473,14 @@ function pushRoomState(accessory, room) {
   const temp = accessory.getService(Service.TemperatureSensor);
   if (!thermo) return;
 
-  const currentTempC = Number(room.currentTemp / 10);
-  const setTempC = Number(effectiveTargetTemp(room) / 10);
+  const currentTempC = toCelsius(room.currentTemp);
+  const setTempC = toCelsius(effectiveTargetTemp(room));
   const heatingState = deriveCurrentHeatingState(room);
 
-  thermo.getCharacteristic(Characteristic.TargetTemperature)
-    .updateValue(setTempC);
-  thermo.getCharacteristic(Characteristic.CurrentTemperature)
-    .updateValue(currentTempC);
+  // Skip rather than push NaN: HAP rejects non-finite values outright, and a
+  // substituted 0 °C would show in HomeKit as a genuine reading.
+  updateIfFinite(thermo, Characteristic.TargetTemperature, setTempC);
+  updateIfFinite(thermo, Characteristic.CurrentTemperature, currentTempC);
   thermo.getCharacteristic(Characteristic.CurrentHeatingCoolingState)
     .updateValue(heatingState);
   thermo.getCharacteristic(Characteristic.TargetHeatingCoolingState)
@@ -480,9 +499,10 @@ function pushRoomState(accessory, room) {
   thermo.getCharacteristic(Characteristic.RemainingDuration)
     .updateValue(deriveRemainingDuration(room));
   // Eve.Energy.TotalConsumption: cumulative kWh from Warmup's `total` field.
+  // `null` means "not reported this poll" — skip so the cumulative series
+  // keeps its last value instead of dropping to the origin.
   if (EveTotalConsumption) {
-    thermo.getCharacteristic(EveTotalConsumption)
-      .updateValue(deriveTotalConsumption(room));
+    updateIfFinite(thermo, EveTotalConsumption, deriveTotalConsumption(room));
   }
 
   // Child lock state: only update if the lock service exists (it may not
@@ -500,15 +520,18 @@ function pushRoomState(accessory, room) {
     );
   }
 
+  // A room with no paired thermostat has no air probe at all — leave the
+  // characteristic at its last known value rather than pushing NaN (HAP
+  // rejects it) or a fabricated 0 °C (HomeKit would render it as real).
   if (temp) {
-    temp.getCharacteristic(Characteristic.CurrentTemperature)
-      .updateValue(Number(room.airTemp / 10));
+    updateIfFinite(temp, Characteristic.CurrentTemperature, toCelsius(room.airTemp));
   }
 
   // Record a history entry for Eve. valvePosition is synthesized — Warmup
   // doesn't expose actual valve % via the cloud API, so we use the heating
   // state as a proxy (100 = relay on, 0 = idle).
-  if (accessory.historyService && typeof accessory.historyService.addEntry === 'function') {
+  if (accessory.historyService && typeof accessory.historyService.addEntry === 'function' &&
+      Number.isFinite(currentTempC) && Number.isFinite(setTempC)) {
     accessory.historyService.addEntry({
       time: Math.floor(Date.now() / 1000),
       currentTemp: currentTempC,
@@ -530,14 +553,17 @@ async function handleTargetHeatingCoolingSet(platform, accessory, value) {
   try {
     switch (value) {
       case 0: // Off — per-room since v3 (was location-wide in v2 due to API limit)
-        await platform.thermostats.setRoomOff(accessory.context.roomId);
+        await enqueueAccessoryWrite(platform, accessory, () =>
+          platform.thermostats.setRoomOff(accessory.context.roomId));
         break;
       case 1: // Heat — keep override/fixed if already set, otherwise resume schedule
         if (room.runMode === 'fixed' || room.runMode === 'override') return;
-        await platform.thermostats.setRoomAuto(accessory.context.roomId);
+        await enqueueAccessoryWrite(platform, accessory, () =>
+          platform.thermostats.setRoomAuto(accessory.context.roomId));
         break;
       case 3: // Auto
-        await platform.thermostats.setRoomAuto(accessory.context.roomId);
+        await enqueueAccessoryWrite(platform, accessory, () =>
+          platform.thermostats.setRoomAuto(accessory.context.roomId));
         break;
     }
   } catch (err) {
@@ -574,7 +600,8 @@ async function flushTargetTemperatureSet(platform, accessory, debouncers, pendin
   if (debouncers.get('targetTemp') !== pending) return;
   debouncers.delete('targetTemp');
   try {
-    await platform.thermostats.setTargetTemperature(accessory.context.roomId, pending.value);
+    await enqueueAccessoryWrite(platform, accessory, () =>
+      platform.thermostats.setTargetTemperature(accessory.context.roomId, pending.value));
     pending.resolve();
   } catch (err) {
     platform.log.error('Set TargetTemperature for %s failed: %s', accessory.displayName, err.message);
@@ -588,7 +615,8 @@ async function handleChildLockSet(platform, accessory, value) {
   platform.log.debug('Set ChildLock for %s → %s', accessory.displayName, wantsLocked ? 'locked' : 'unlocked');
   if (!platform.thermostats) throw notReadyError();
   try {
-    await platform.thermostats.setRoomChildLock(accessory.context.roomId, wantsLocked);
+    await enqueueAccessoryWrite(platform, accessory, () =>
+      platform.thermostats.setRoomChildLock(accessory.context.roomId, wantsLocked));
     // Optimistically update CurrentState to match Target — the next poll
     // will correct it if the device didn't actually accept.
     const lockService = accessory.getService(Service.LockMechanism);
@@ -603,6 +631,27 @@ async function handleChildLockSet(platform, accessory, value) {
     platform.log.error('Set ChildLock for %s failed: %s', accessory.displayName, err.message);
     throw asHapStatusError(err);
   }
+}
+
+// Serialize the cloud writes belonging to one accessory.
+//
+// Two writes for the same room can otherwise be in flight at once — the
+// debounce entry is deleted before its request is awaited, so a second slider
+// adjustment made during the first round trip starts a second request, and a
+// mode tap can race a slider drag freely. If the responses arrive out of
+// order the device obeys the older one, the next poll reads that back, and
+// the user's change is silently lost with no error anywhere.
+function enqueueAccessoryWrite(platform, accessory, task) {
+  const key = accessory.UUID;
+  const previous = platform._writeChains.get(key) || Promise.resolve();
+  // Run `task` whichever way the previous write settled — one failure must
+  // not strand every subsequent write for that accessory.
+  const result = previous.then(task, task);
+  // The stored tail is only a sequencer, so swallow rejections on it; an
+  // unhandled one would take Homebridge down. Callers still see the real
+  // outcome through `result`.
+  platform._writeChains.set(key, result.catch(() => {}));
+  return result;
 }
 
 function getDebouncers(platform, accessory) {
@@ -722,6 +771,7 @@ function removeStaleLocationAccessories(platform, currentLocId, enabledSpecs) {
     stale.push(accessory);
     platform.accessories.delete(accUuid);
     platform._debouncers.delete(accUuid);
+    platform._writeChains.delete(accUuid);
   }
 
   if (stale.length) {
@@ -747,9 +797,13 @@ async function handleLocationSwitchSet(platform, spec, value) {
 // Reflect actual location-mode state on the Switch characteristics. If any
 // room is in `holiday`/`anti_frost`, the corresponding switch is ON.
 function pushLocationSwitchStates(platform) {
-  const rooms = (platform.thermostats && platform.thermostats.room) || [];
+  // Guard once, up front: the old code checked `platform.thermostats` on the
+  // first line and then dereferenced `._locId` unguarded on the next.
+  if (!platform.thermostats || platform.thermostats._locId == null) return;
+  const locId = platform.thermostats._locId;
+  const rooms = platform.thermostats.room || [];
   LOCATION_SWITCHES.forEach((spec) => {
-    const accessoryUuid = uuid.generate(`warmup4ie:${spec.kind}:${platform.thermostats._locId}`);
+    const accessoryUuid = uuid.generate(`warmup4ie:${spec.kind}:${locId}`);
     const accessory = platform.accessories.get(accessoryUuid);
     if (!accessory) return;
     const sw = accessory.getService(Service.Switch);
@@ -776,11 +830,38 @@ function hasRequiredConfig(platform) {
     platform.password.length > 0;
 }
 
+// Push a numeric characteristic only when the value is actually a finite
+// number. Warmup can omit temperature fields entirely (a Room with no paired
+// thermostat has an empty `thermostat4ies`), and HAP rejects NaN/Infinity —
+// a rejected write leaves the accessory unusable in HomeKit.
+function updateIfFinite(service, characteristic, value) {
+  if (!Number.isFinite(value)) return;
+  service.getCharacteristic(characteristic).updateValue(value);
+}
+
 // Warmup's API can return targetTemp below the device's configured minimum
 // (e.g. just after switching modes); HomeKit rejects values out of the
 // characteristic's [minTemp, maxTemp] range, so clamp.
+//
+// Returns `null` when there is no target to show. Clamping an absent target
+// up to minTemp would put a confident "5 °C" on the tile that the device
+// never reported, and an inverted range (minTemp > maxTemp) would clamp a
+// perfectly good 21 °C up to 30 °C — so only clamp against a sane floor.
 function effectiveTargetTemp(room) {
-  return room.targetTemp > room.minTemp ? room.targetTemp : room.minTemp;
+  const target = room.targetTemp;
+  if (target === null || target === undefined) return null;
+  const min = room.minTemp;
+  if (!Number.isFinite(min) || (Number.isFinite(room.maxTemp) && min > room.maxTemp)) return target;
+  return target > min ? target : min;
+}
+
+// Convert a Warmup temperature (tenths of °C) to °C for HomeKit, mapping a
+// genuinely absent reading to NaN so `updateIfFinite` skips the write.
+// Necessary because `Number(null)` is 0, not NaN — a nullable field coming
+// back null would otherwise render in HomeKit as a real 0 °C.
+function toCelsius(value) {
+  if (value === null || value === undefined) return NaN;
+  return Number(value) / 10;
 }
 
 // Remove a v3.10.3-era thermo→tempService link if the cached accessory
@@ -813,6 +894,12 @@ function deriveStatusFault(room) {
 // when it's actually fine but the API didn't include lastPoll.
 const STALE_LAST_POLL_MIN = 20;
 function deriveStatusActive(room) {
+  // No thermostat paired to this Room: nothing can report in and nothing
+  // will accept a write, so "inactive" is the honest answer. Without this
+  // the accessory looks fully functional right up until a control silently
+  // fails. Explicit `=== false` so rooms from before the flag existed
+  // (cached, or synthetic in tests) keep the old behaviour.
+  if (room.hasThermostat === false) return false;
   if (typeof room.lastPoll !== 'number') return true;
   return room.lastPoll <= STALE_LAST_POLL_MIN;
 }

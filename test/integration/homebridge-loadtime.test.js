@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 // Smoke test: the plugin module exports a function that, when called with a
 // homebridge-shaped argument, registers the platform as a *dynamic* platform
 // with the right name + alias.

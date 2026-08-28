@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 // Transport seam tests: `_fetch` is the lone HTTP helper. `_rest` and
 // `_graphql` wrap it with protocol-specific success-checking. These tests
 // stub `globalThis.fetch` to verify every error/success path.
@@ -88,6 +86,43 @@ describe('_rest (login transport)', () => {
     restoreFetch = stubFetch(async () => makeResponse({ status: { result: 'error', message: 'Bad creds' } }));
     await expect(newClient()._rest({ request: { method: 'userLogin' } }))
       .rejects.toThrow(/Warmup API: .*Bad creds/);
+  });
+
+  // Warmup puts the useful signal in `response.errorCode` and sends no prose
+  // at all for the commonest failure. Each shape below is a real one the
+  // gateway can return; none may degrade to `Warmup API: {"result":"error"}`.
+  describe('error detail decoding', () => {
+    // Stub the login response and hand back the rejected promise to assert on.
+    const login = (body) => {
+      restoreFetch = stubFetch(async () => makeResponse(body));
+      return newClient()._rest({ request: { method: 'userLogin' } });
+    };
+
+    test('errorCode alone → mapped prose plus the raw code', async () => {
+      // Captured verbatim from the live API on 2026-08-28.
+      await expect(login({ status: { result: 'error' }, response: { errorCode: 101 } }))
+        .rejects.toThrow('Warmup API: invalid email or password (errorCode 101)');
+    });
+
+    test('API prose wins over our mapping, code still appended', async () => {
+      await expect(login({ status: { result: 'error' }, message: 'Account locked', response: { errorCode: 101 } }))
+        .rejects.toThrow('Warmup API: Account locked (errorCode 101)');
+    });
+
+    test('prose with no code → prose alone', async () => {
+      await expect(login({ status: { result: 'error', message: 'Service unavailable' } }))
+        .rejects.toThrow('Warmup API: Service unavailable');
+    });
+
+    test('unmapped code → still reports the number, not a JSON blob', async () => {
+      await expect(login({ status: { result: 'error' }, response: { errorCode: 999 } }))
+        .rejects.toThrow('Warmup API: errorCode 999');
+    });
+
+    test('neither prose nor code → falls back to the status object', async () => {
+      await expect(login({ status: { result: 'error' } }))
+        .rejects.toThrow('Warmup API: {"result":"error"}');
+    });
   });
 });
 
