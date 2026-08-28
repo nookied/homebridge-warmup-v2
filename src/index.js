@@ -98,34 +98,27 @@ module.exports = function (homebridge) {
   homebridge.registerPlatform(PLUGIN_NAME, PLATFORM_NAME, warmup4iePlatform, true);
 };
 
-// Load fakegato-history on first actual use, once per process.
+// Load the Eve history service on first actual use, once per process.
 //
-// `fakegato-history` declares `googleapis` as a hard dependency, and its
-// `fakegato-storage.js` requires the Google Drive backend at module top
-// level — so merely requiring fakegato pulls in the whole googleapis client
-// even though this plugin only ever passes `storage: 'fs'`. Measured on a
-// Raspberry Pi 5: ~860 ms, 1039 modules, 194 MB on disk. In isolation the
-// require costs ~119 MB RSS; measured in situ against a running child
-// bridge the attributable saving is ~65 MB (172-179 MB -> 107-108 MB).
+// `fakegato-history` is vendored at src/vendor/fakegato-history rather than
+// installed from npm: upstream declares `googleapis` as a hard dependency for
+// a Google Drive backend this plugin never selects, and required it at module
+// load — ~207 MB on disk, ~115 MB RSS and ~800 ms of startup for every user,
+// typically on a Raspberry Pi. The vendored copy has that backend removed and
+// pulls in nothing but Node builtins. See src/vendor/fakegato-history/README.md.
 //
-// We cannot fix that for users from here: `overrides` in a package's own
-// manifest are ignored when it is installed as a dependency, and
-// patch-package only patches the tree of the project that runs it — a
-// postinstall that rewrites another package's files on a user's machine
-// would be both fragile across hoisting layouts and inappropriate for a
-// Verified plugin. Upstream is effectively unmaintained (0.6.7 is latest,
-// published 2025-03-24). So the load is deferred instead, and
-// `disableHistory` lets anyone who doesn't use Eve.app skip the cost
-// entirely rather than paying it on every restart.
+// The load stays deferred anyway, so `disableHistory` skips it entirely: the
+// remaining cost is small but not nothing, and users who do not run Eve.app
+// have no reason to pay it.
 //
 // The module export is `(homebridge) => FakeGatoHistoryService` — a class
 // bound to the Homebridge instance's HAP types. Wrapped in try/catch so a
-// fakegato breakage degrades to "no graphs" rather than killing the plugin.
+// breakage here degrades to "no graphs" rather than killing the plugin.
 function loadFakeGatoHistory() {
   if (fakeGatoLoadAttempted) return FakeGatoHistoryService;
   fakeGatoLoadAttempted = true;
   try {
-    FakeGatoHistoryService = require('fakegato-history')(homebridgeRef);
+    FakeGatoHistoryService = require('./vendor/fakegato-history/fakegato-history')(homebridgeRef);
   } catch (ex) {
     FakeGatoHistoryService = null;
     debug('fakegato-history unavailable: %s', ex.message);

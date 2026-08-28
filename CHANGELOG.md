@@ -7,6 +7,41 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.13.1] — unreleased
+
+### Changed
+
+- **`fakegato-history` is vendored; `googleapis` is gone.** The four files this
+  plugin actually uses now live in `src/vendor/fakegato-history/`, with the
+  Google Drive storage backend removed. That backend was the only thing
+  pulling in `googleapis`, for a mode this plugin never selects.
+
+  | | before | after |
+  |---|---|---|
+  | install size | **228 MB** | **356 kB** |
+  | packages installed | 97 | 4 |
+  | runtime dependencies | `debug`, `fakegato-history` (→ `googleapis`) | `debug` |
+  | require cost | 115.0 MB / 804 ms / 1086 modules | 4.1 MB / 4 ms / 3 modules |
+  | published tarball | 67.8 kB | 77.5 kB |
+
+  This closes a known issue that had been mitigated but not solved since
+  v3.12.0. The fix itself was always about five lines; the obstacle was that
+  every route to delivering it ran through someone else's package. Vendoring
+  keeps it entirely in this repository.
+
+  **It is a copy, not a rewrite.** Changes from upstream are limited to
+  removing the Drive backend (one `require` and four `case` branches), not
+  vendoring `lib/googleDrive.js`, a provenance header per file, and one stale
+  comment. `eslint.config.mjs` skips the directory so it stays auditable
+  against the original. MIT licence and attribution (© 2017 simont77) are
+  carried in `src/vendor/fakegato-history/LICENSE`, and the README there
+  records the changes and how to re-sync.
+
+  Eve history behaviour is unchanged, and `disableHistory` still skips the
+  (now much smaller) load for anyone not using Eve.app.
+
+---
+
 ## [3.13.0] — 2026-08-28
 
 Implements ROADMAP M8. Changes the GraphQL query; **live-tested against a real

@@ -128,33 +128,20 @@ plugin can work around it — the number simply is not being reported.
 
 ### Memory use
 
-By default this plugin records temperature and heating-state history for
-Eve.app, using the standard `fakegato-history` library. That library declares
-the **Google APIs client** as a hard dependency and loads it on every start —
-for its Google Drive storage backend, which this plugin never uses (history is
-always written to disk).
+This plugin has **one** runtime dependency (`debug`) and installs in well
+under a megabyte. The Eve.app history support that would normally pull in a
+Google APIs client — around 228 MB of `node_modules` — is vendored with that
+backend removed, so you never download or load it.
 
-Measured on a Raspberry Pi 5 running the plugin in a child bridge, comparing
-settled RSS with the option off and on:
-
-| | history on | `disableHistory: true` |
-|---|---|---|
-| child-bridge RSS | 172–179 MB | **107–108 MB** |
-
-So roughly **65 MB**, about 38% of the process. It also costs around 194 MB of
-disk in `node_modules` and close to a second of startup either way.
-
-There is no way to avoid that from inside this plugin while history is on, and
-the library is no longer actively maintained. So if you don't use Eve.app, set:
+If you don't use Eve.app you can skip the history service entirely:
 
 ```json
 "disableHistory": true
 ```
 
-Nothing else changes — every HomeKit control and reading behaves identically,
-and any history already written to disk is left untouched, so you can turn it
-back on later. On a Raspberry Pi running several plugins, this is usually the
-single biggest saving available here.
+That saves a few more MB of memory and a little startup time. Nothing else
+changes — every HomeKit control and reading behaves identically, and history
+already written to disk is left untouched, so you can turn it back on later.
 
 **A config change only reaches a plugin running in a child bridge after a full
 Homebridge restart.** Restarting just the child bridge respawns it from the

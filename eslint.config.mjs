@@ -5,6 +5,11 @@ import pluginJest from "eslint-plugin-jest";
 /** @type {import('eslint').Linter.Config[]} */
 export default [
   {
+    // Third-party code kept close to the original so it stays auditable
+    // against upstream — see src/vendor/fakegato-history/README.md.
+    ignores: ["src/vendor/**"],
+  },
+  {
     files: ["**/*.js"],
     languageOptions: {
       sourceType: "commonjs", // Change to "module" for ES6

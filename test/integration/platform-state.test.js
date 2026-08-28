@@ -220,7 +220,7 @@ describe('warmup4ie dynamic platform', () => {
       historyServices.push(this);
     });
     MockFakeGato = jest.fn(() => fakeGatoCtor);
-    jest.doMock('fakegato-history', () => MockFakeGato);
+    jest.doMock('../../src/vendor/fakegato-history/fakegato-history', () => MockFakeGato);
 
     api = fakeHomebridge();
     const plugin = require('../../src/index.js');
@@ -245,7 +245,7 @@ describe('warmup4ie dynamic platform', () => {
       try { platform.shutdown(); } catch { /* already shut down */ }
     });
     jest.dontMock('../../src/lib/warmup4ie');
-    jest.dontMock('fakegato-history');
+    jest.dontMock('../../src/vendor/fakegato-history/fakegato-history');
   });
 
   test('missing credentials: no Warmup client, no poll timer, cached accessories preserved', () => {
@@ -341,7 +341,7 @@ describe('warmup4ie dynamic platform', () => {
       });
       return { Warmup4IE: Mock };
     });
-    jest.doMock('fakegato-history', () => MockFakeGato);
+    jest.doMock('../../src/vendor/fakegato-history/fakegato-history', () => MockFakeGato);
     const localApi = fakeHomebridge();
     const plugin = require('../../src/index.js');
     plugin(localApi);
@@ -1145,10 +1145,10 @@ describe('warmup4ie dynamic platform', () => {
     expect(accessory.historyService).toBeUndefined();
     expect(historyServices).toHaveLength(0);
     // The point of the toggle is not merely skipping the service — it is
-    // never requiring `fakegato-history` at all, because that pulls the whole
-    // googleapis client into the Homebridge process (~105 MB RSS measured).
-    // If this ever regresses to an eager require at plugin init, the memory
-    // saving silently disappears while every other assertion still passes.
+    // never requiring the history module at all. Since it is vendored the
+    // googleapis cost is gone either way, but the load is still ~4 MB and
+    // some work, and a regression to an eager require at plugin init would
+    // silently undo `disableHistory` while every other assertion passed.
     expect(MockFakeGato).not.toHaveBeenCalled();
 
     // Everything else still works — the toggle only costs Eve.app graphs.
