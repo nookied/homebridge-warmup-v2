@@ -222,6 +222,7 @@ warmup4iePlatform.prototype = {
       }
 
       this.log.info('Found %s room(s)', rooms.length);
+      logSensorModes(this, rooms);
       this.reconcileAccessories(rooms);
       this.reconcileLocationAccessories();
       this.startPolling();
@@ -418,11 +419,35 @@ function attachAccessoryServices(platform, accessory, room) {
       accessory.removeService(existingTemp);
     }
   } else {
+    // The tile shows whichever reading the Thermostat is NOT showing, named
+    // from the device's own word for it — see secondaryReadingLabel().
+    //
+    // Backwards-compatible by construction. Where no second probe is fitted
+    // (the common case) `secondaryTemp` is null, we fall back to `airTemp`
+    // and the label stays "Air" — byte-for-byte the old behaviour, so no
+    // existing tile changes or vanishes from a HomeKit scene. Only an
+    // air-mode device that genuinely has a floor probe sees a difference:
+    // a tile that used to duplicate the Thermostat now shows floor temp.
+    const label = secondaryReadingLabel(room);
+    let tempService = accessory.getService(Service.TemperatureSensor);
+    // If the reading's meaning changed (Air → Floor), the persisted service
+    // name is now a lie. Recreate so it picks up the new one. That costs any
+    // manual rename the user made, which is the lesser evil against a tile
+    // labelled "Air" reporting floor temperature.
+    if (tempService && accessory.context.secondaryLabel && accessory.context.secondaryLabel !== label) {
+      platform.log.info(
+        '%s: temperature sensor now reports %s (was %s) — recreating the tile so its name matches',
+        room.roomName, label, accessory.context.secondaryLabel
+      );
+      unlinkTempFromThermo(thermo, tempService);
+      accessory.removeService(tempService);
+      tempService = null;
+    }
+    accessory.context.secondaryLabel = label;
     // Set the service Name only on first add so we don't overwrite a user's
     // rename in Apple Home on subsequent restarts.
-    let tempService = accessory.getService(Service.TemperatureSensor);
     if (!tempService) {
-      tempService = accessory.addService(Service.TemperatureSensor, `${room.roomName} Air`);
+      tempService = accessory.addService(Service.TemperatureSensor, `${room.roomName} ${label}`);
     }
     tempService.getCharacteristic(Characteristic.CurrentTemperature)
       .setProps({ minValue: -100, maxValue: 100 });
@@ -601,7 +626,7 @@ function pushRoomState(accessory, room) {
   // characteristic at its last known value rather than pushing NaN (HAP
   // rejects it) or a fabricated 0 °C (HomeKit would render it as real).
   if (temp) {
-    updateIfFinite(temp, Characteristic.CurrentTemperature, toCelsius(room.airTemp));
+    updateIfFinite(temp, Characteristic.CurrentTemperature, toCelsius(secondaryReading(room)));
   }
 
   // Record a history entry for Eve. valvePosition is synthesized — Warmup
@@ -949,6 +974,65 @@ function effectiveTargetTemp(room) {
   const min = room.minTemp;
   if (!Number.isFinite(min) || (Number.isFinite(room.maxTemp) && min > room.maxTemp)) return target;
   return target > min ? target : min;
+}
+
+// Say, once at startup, what each Thermostat's Current reading actually is.
+//
+// It is air temperature on air-configured devices and floor temperature on
+// floor-configured ones, and HomeKit gives no way to label a characteristic's
+// value — so before v3.13 users had to work out their own sensor mode from
+// the device or the MyHeating app in order to set `disableAirSensor`
+// sensibly. `heatingTarget` makes it knowable, so we simply tell them.
+function logSensorModes(platform, rooms) {
+  const known = rooms.filter((r) => r.heatingTarget);
+  if (!known.length) return;  // older payloads: say nothing rather than guess
+
+  const byMode = new Map();
+  known.forEach((r) => {
+    const list = byMode.get(r.heatingTarget) || [];
+    list.push(r.roomName);
+    byMode.set(r.heatingTarget, list);
+  });
+  for (const [mode, names] of byMode) {
+    platform.log.info(
+      'Thermostat temperature is the %s reading for: %s', mode, names.join(', ')
+    );
+  }
+
+  // An air-mode device's air sensor duplicates its Thermostat exactly. Worth
+  // one line, because the alternative is a user staring at two identical
+  // numbers wondering which is which.
+  const redundant = known.filter((r) => r.heatingTarget === 'air' && secondaryReadingLabel(r) === 'Air');
+  if (!platform.disableAirSensor && redundant.length) {
+    platform.log.info(
+      'The separate Air tile duplicates the Thermostat reading for %s room(s) — set "disableAirSensor": true to hide it',
+      redundant.length
+    );
+  }
+}
+
+// The reading the Thermostat is *not* showing, in tenths of °C.
+//
+// `secondaryTemp` is the device's own "other" reading and is already
+// sentinel-filtered by the client, so it is null when no second probe is
+// fitted. Falling back to `airTemp` preserves the pre-v3.13 behaviour exactly
+// for the overwhelming majority of installs, which have one probe.
+function secondaryReading(room) {
+  return room.secondaryTemp !== null && room.secondaryTemp !== undefined
+    ? room.secondaryTemp
+    : room.airTemp;
+}
+
+// Presentation label for that reading, from the device's own word for it.
+// Warmup sends lowercase `air` / `floor`; anything unrecognised falls back to
+// "Air", which is what this tile has always been called.
+function secondaryReadingLabel(room) {
+  const raw = room.secondaryTemp !== null && room.secondaryTemp !== undefined
+    ? room.secondaryLabel
+    : null;
+  if (typeof raw !== 'string' || !raw.trim()) return 'Air';
+  const word = raw.trim().toLowerCase();
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
 // Convert a Warmup temperature (tenths of °C) to °C for HomeKit, mapping a

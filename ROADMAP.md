@@ -232,7 +232,7 @@ A grab bag of features ranging from purely additive (no GraphQL changes) to "nee
 
 ---
 
-### Milestone 8 — Label the temperature reading (candidate, not scheduled)
+### ✅ Milestone 8 — Label the temperature reading — SHIPPED (v3.13.0)
 
 **Problem.** The Thermostat tile's Current reading is air temperature on
 air-configured devices and floor temperature on floor-configured ones, and the
@@ -260,8 +260,18 @@ in Apple Home, and HomeKit does not let a plugin relabel a characteristic's
 *value*. The realistic scope is naming the secondary sensor from
 `secondaryLabel` and documenting the primary, not relabelling the Thermostat.
 
-**Effort:** ~half a day plus live QA on a floor-configured device — which
-nobody currently has, so this cannot be fully verified yet.
+**Shipped in v3.13.0.** The secondary tile now shows `secondaryTemp` when a
+probe exists (falling back to `airTemp` otherwise) and is named from the
+device's own `secondaryLabel`; the `900` sentinel is filtered in
+`probeReading()`; and `logSensorModes()` states each Thermostat's sensor mode
+at startup, plus a hint when the Air tile is redundant.
+
+Backwards-compatible by construction: with one probe — the common case —
+`secondaryTemp` is null, the value falls back to `airTemp` and the label stays
+"Air", so no existing tile changes or drops out of a HomeKit scene.
+
+**Still unverified in the field:** nobody available has a floor-configured or
+dual-probe device, so the "Floor" path is covered by offline tests only.
 
 ---
 

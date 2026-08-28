@@ -67,6 +67,10 @@ const GQL_OWNED_AND_ROOMS = `
           roomMode
           targetTemp
           currentTemp
+          mainTemp
+          mainLabel
+          secondaryTemp
+          secondaryLabel
           overrideDur
           overrideTemp
           fixedTemp
@@ -75,6 +79,7 @@ const GQL_OWNED_AND_ROOMS = `
           total
           thermostat4ies {
             deviceSN
+            heatingTarget
             appFw
             wifiFw
             airTemp
@@ -117,6 +122,14 @@ const HOLIDAY_DEFAULT_DAYS = 365;
 // own devices ship with and matches what real payloads report.
 const DEFAULT_MIN_TEMP = 50;
 const DEFAULT_MAX_TEMP = 300;
+
+// Warmup reports `900` (= 90.0 °C) for a probe that is not fitted. It is a
+// sentinel, not a reading: observed on all six devices of a real air-mode
+// account (2026-08-28 survey, CLAUDE.md), identical across two firmware
+// versions, and physically impossible for underfloor heating. Anything that
+// surfaces a probe reading must drop it, or it publishes 90 °C to every user
+// without that probe.
+const NO_PROBE_SENTINEL = 900;
 
 // `deviceAdvanced` is the kitchen-sink mutation for per-thermostat config —
 // child lock, brightness, sensor offsets, etc. We currently only use it for
@@ -414,13 +427,22 @@ function normalizeRoom(r) {
     //     since v3.4 and drives `CurrentHeatingCoolingState`. The 409 seen
     //     during v3 development turned out to be specific to
     //     `user.location(id:)`, not to the `parameters` field.
-    // ⚠️ `900` (= 90.0 °C) is Warmup's sentinel for "no probe fitted", not a
-    // reading. Observed on all six devices of a real air-mode account
-    // (2026-08-28 field survey — see CLAUDE.md). Neither field is consumed
-    // today; anything that starts consuming them MUST suppress 900 first, or
-    // it will publish 90 °C to every user without a floor probe.
-    floor1Temp: tenths(t.floor1Temp),
-    floor2Temp: tenths(t.floor2Temp),
+    // Raw probe readings. Both carry NO_PROBE_SENTINEL when unfitted — use
+    // `secondaryTemp` below rather than these, which are sentinel-filtered.
+    floor1Temp: probeReading(t.floor1Temp),
+    floor2Temp: probeReading(t.floor2Temp),
+    // Which reading the device actually regulates on: `air` | `floor`. This
+    // is what `Thermostat.CurrentTemperature` ends up showing, and until now
+    // the README asked users to work it out for themselves.
+    heatingTarget: t.heatingTarget || null,
+    // The device's own labels for its two readings — `mainLabel` describes
+    // `currentTemp`, `secondaryLabel` the other one. Lowercase on the wire
+    // ("air" / "floor"); presentation-cased at the point of use.
+    mainLabel: r.mainLabel || null,
+    secondaryLabel: r.secondaryLabel || null,
+    // The reading the Thermostat is NOT showing. `null` when no probe is
+    // fitted, so callers never see the 90 °C sentinel.
+    secondaryTemp: probeReading(r.secondaryTemp),
     isFaultAir: t.isFaultAir,
     isFaultFloor1: t.isFaultFloor1,
     isFaultFloor2: t.isFaultFloor2,
@@ -466,6 +488,15 @@ function tenths(value) {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+// A probe reading in tenths of °C, or `null` when the probe is absent.
+// Distinct from `tenths()` because only probe fields carry the sentinel —
+// applying this to `currentTemp` would silently discard a legitimate (if
+// alarming) 90 °C air reading.
+function probeReading(value) {
+  const n = tenths(value);
+  return n === NO_PROBE_SENTINEL ? null : n;
 }
 
 function toWarmupTemperature(value) {

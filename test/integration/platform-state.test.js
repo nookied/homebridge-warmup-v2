@@ -1228,6 +1228,84 @@ describe('warmup4ie dynamic platform', () => {
     jest.useRealTimers();
   });
 
+  // M8 — the temperature tile shows the reading the Thermostat is not showing,
+  // named from the device's own word for it.
+  describe('secondary temperature sensor (M8)', () => {
+    async function launchWith(roomOverrides) {
+      const platform = new PlatformCtor(
+        fakeLog(), { username: 'one@example.com', password: 'p' }, api
+      );
+      MockWarmup4IE.mockImplementationOnce(function (options, callback) {
+        this.room = [];
+        this._locId = 12345;
+        this.getStatus = jest.fn(async () => this.room.filter(Boolean));
+        this.room[100001] = room(100001, 'Study', roomOverrides);
+        clients.push(this);
+        queueMicrotask(() => callback(null, [this.room[100001]]));
+      });
+      api.emit('didFinishLaunching');
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      return platform;
+    }
+
+    test('no second probe: falls back to the air reading and the old "Air" name', async () => {
+      // This is the compatibility guarantee. Most installs have one probe, and
+      // for them nothing may change — no renamed tile, nothing dropping out of
+      // a HomeKit scene.
+      const platform = await launchWith({ secondaryTemp: null, secondaryLabel: 'floor', airTemp: 215 });
+      const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+      const temp = accessory.getService(api.hap.Service.TemperatureSensor);
+      expect(temp.name).toBe('Study Air');
+      expect(temp.getCharacteristic(api.hap.Characteristic.CurrentTemperature).updateValue)
+        .toHaveBeenCalledWith(21.5);
+      platform.shutdown();
+    });
+
+    test('second probe present: shows it, named from the device label', async () => {
+      const platform = await launchWith({ secondaryTemp: 245, secondaryLabel: 'floor', airTemp: 215 });
+      const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+      const temp = accessory.getService(api.hap.Service.TemperatureSensor);
+      expect(temp.name).toBe('Study Floor');
+      // 24.5 (floor), not 21.5 (air) — the reading the Thermostat is not showing.
+      expect(temp.getCharacteristic(api.hap.Characteristic.CurrentTemperature).updateValue)
+        .toHaveBeenCalledWith(24.5);
+      platform.shutdown();
+    });
+
+    test('an unrecognised label falls back to "Air" rather than inventing one', async () => {
+      const platform = await launchWith({ secondaryTemp: 245, secondaryLabel: '', airTemp: 215 });
+      const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+      expect(accessory.getService(api.hap.Service.TemperatureSensor).name).toBe('Study Air');
+      platform.shutdown();
+    });
+
+    test('when the reading changes meaning, the tile is recreated so its name is not a lie', async () => {
+      const platform = await launchWith({ secondaryTemp: 245, secondaryLabel: 'floor', airTemp: 215 });
+      const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+      const before = accessory.getService(api.hap.Service.TemperatureSensor);
+      expect(before.name).toBe('Study Floor');
+
+      // Probe removed: the reading reverts to air, so a tile still called
+      // "Floor" would be actively misleading.
+      platform.thermostats.room[100001] = room(100001, 'Study', {
+        secondaryTemp: null, secondaryLabel: 'floor', airTemp: 215
+      });
+      reattach(platform);
+
+      const after = accessory.getService(api.hap.Service.TemperatureSensor);
+      expect(after).not.toBe(before);
+      expect(after.name).toBe('Study Air');
+      platform.shutdown();
+    });
+
+    // Re-runs the attach path the way a poll-tick reconcile would.
+    function reattach(platform) {
+      platform.reconcileAccessories([platform.thermostats.room[100001]]);
+    }
+  });
+
   test('shutdown: clears the poll timer and pending debouncers', async () => {
     const platform = new PlatformCtor(
       fakeLog(), { username: 'one@example.com', password: 'p' }, api

@@ -52,6 +52,9 @@ homebridge-warmup4ie-v2/
 │   │   ├── enqueueAccessoryWrite(p, acc, task)   Serializes cloud writes per accessory (ordering)
 │   │   ├── updateIfFinite(svc, char, value)      Skips NaN/Infinity writes — HAP rejects them
 │   │   ├── toCelsius(tenths)                     tenths → °C; null → NaN so the write is skipped
+│   │   ├── secondaryReading(room)                The reading the Thermostat isn't showing
+│   │   ├── secondaryReadingLabel(room)           "Floor"/"Air" from the device's own label
+│   │   ├── logSensorModes(platform, rooms)       Startup: says which reading each Thermostat shows
 │   │   ├── effectiveTargetTemp(room)             Clamps targetTemp to [minTemp, ∞)
 │   │   ├── asHapStatusError(err)                 Maps Warmup errors → HAP status codes
 │   │   └── uuidForRoom(roomId)                   api.hap.uuid.generate('warmup4ie:' + roomId)
@@ -243,7 +246,7 @@ result is finite** — an absent reading is skipped, not published as 0 °C.
 | `Thermostat.StatusActive` | `deriveStatusActive(room)` | `false` when `hasThermostat === false` (no hardware paired) or `lastPoll > 20` minutes. Missing `lastPoll` errs toward `true`. (v3.4) |
 | `Thermostat.RemainingDuration` | `deriveRemainingDuration(room)` | `overrideDur × 60` seconds. Range widened to `MAX_DURATION_MINUTES × 60` (24 h) because HAP's default caps at 1 h. (v3.4) |
 | `Thermostat.<Eve TotalConsumption>` | `deriveTotalConsumption(room)` | Custom Eve characteristic, UUID `E863F10C-…`, from `room.total` (cumulative kWh). Returns `null` when unknown and the write is **skipped** — writing 0 would collapse Eve's cumulative graph. (v3.5) |
-| `TemperatureSensor.CurrentTemperature` | `toCelsius(room.airTemp)` | Separate `<name> Air` service; `minValue: -100, maxValue: 100`. Hidden by `disableAirSensor`. Skipped when absent. |
+| `TemperatureSensor.CurrentTemperature` | `toCelsius(secondaryReading(room))` | The reading the Thermostat is *not* showing: `room.secondaryTemp` when a second probe exists, else `room.airTemp`. Service named `<name> <secondaryReadingLabel(room)>` — "Floor" or "Air", from the device's own `secondaryLabel`. `minValue: -100, maxValue: 100`. Hidden by `disableAirSensor`. Skipped when absent. The service is **recreated** if the reading changes meaning, so a tile named "Air" can never report floor temperature. (v3.13) |
 | `LockMechanism.LockCurrentState` / `.LockTargetState` | `room.lock` | From `parameters.lock` (Int 0/1 on the wire, Boolean in our shape). Optimistic update on tap; the next poll reconciles. Hidden by `disableChildLock`. (v3.7) |
 | `Switch.On` — *Vacation Mode* | any room `runMode === 'holiday'` | Synthetic per-location accessory. Hidden by `disableVacationSwitch`. (v3.6) |
 | `Switch.On` — *Frost Protection* | any room `runMode === 'anti_frost'` | Synthetic per-location accessory. Hidden by `disableFrostSwitch`. (v3.6) |

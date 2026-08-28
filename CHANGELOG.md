@@ -7,7 +7,68 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
-## [Unreleased]
+## [3.13.0] — unreleased
+
+Implements ROADMAP M8. **Changes the GraphQL query**, so it needs a live test
+before tagging (working rule 1) — though `tools/probe-fields.js` has already
+confirmed every added field is accepted by the gateway against a real account.
+
+### Added
+
+- **The temperature tile now shows the reading the Thermostat is *not*
+  showing, named from the device's own word for it.**
+
+  The Thermostat's Current reading is air temperature on air-configured
+  devices and floor temperature on floor-configured ones. Until now the extra
+  tile always showed `airTemp` and was always called "Air" — which meant that
+  on an air-mode device it silently duplicated the Thermostat, and the floor
+  reading was unreachable.
+
+  It now uses `Room.secondaryTemp` with `Room.secondaryLabel` as the name, so
+  an air-mode device with a floor probe gets a `<room> Floor` tile showing
+  floor temperature, and a floor-mode device keeps its `<room> Air` tile.
+
+  **Backwards-compatible by construction.** With one probe — the common case —
+  `secondaryTemp` is null, the value falls back to `airTemp` and the label
+  stays "Air": byte-for-byte the old behaviour. No existing tile is renamed,
+  none disappears, nothing drops out of a HomeKit scene.
+
+  If the reading ever changes meaning (probe added or removed), the service is
+  **recreated** so its name matches. That costs a manual rename, which is the
+  lesser evil against a tile labelled "Air" reporting floor temperature.
+
+- **The plugin now says which reading each Thermostat shows**, once at
+  startup, instead of asking users to work out their own sensor mode:
+
+  ```
+  Thermostat temperature is the air reading for: Living Room, Bedroom, ...
+  The separate Air tile duplicates the Thermostat reading for 6 room(s) —
+  set "disableAirSensor": true to hide it
+  ```
+
+  Payloads without `heatingTarget` log nothing rather than guessing.
+
+- `heatingTarget`, `mainTemp`/`mainLabel` and `secondaryTemp`/`secondaryLabel`
+  added to the GraphQL query and to `normalizeRoom`.
+
+### Fixed
+
+- **The `900` no-probe sentinel is filtered.** Warmup reports `900`
+  (= 90.0 °C) for a probe that is not fitted. `probeReading()` maps it to
+  `null` for `secondaryTemp`, `floor1Temp` and `floor2Temp` — deliberately
+  *not* for `currentTemp`, where 90 °C would be alarming but legitimate and
+  filtering it would hide a real fault. Without this the feature above would
+  have published 90 °C to every user without a second probe.
+
+### Known limitation
+
+- The "Floor" path has **offline coverage only**. No floor-configured or
+  dual-probe device was available to test against; the air-mode and
+  no-probe paths are verified on real hardware.
+
+---
+
+## [Unreleased — docs]
 
 Documentation and tooling only — no runtime behaviour changes.
 

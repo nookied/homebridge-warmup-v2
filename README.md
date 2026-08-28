@@ -97,14 +97,26 @@ on* — which depends on how the thermostat was commissioned:
 | **Air** | air temperature | the same value — redundant, safe to hide |
 | **Floor** | floor temperature | air temperature — the only place to see it |
 
-To find out which mode yours is in, check the thermostat's own settings or the
-MyHeating app. The plugin does not currently label the reading — the Warmup
-API does expose the answer (`heatingTarget`, and a `mainLabel` per room), so
-this is a known gap rather than a limitation.
+**Since v3.13 the plugin tells you**, once per startup, in the Homebridge log:
 
-A device with **no floor probe fitted** reports a placeholder value for the
-floor reading, not a real temperature. The plugin never surfaces that field,
-so you will not see it.
+```
+[WarmUP] Thermostat temperature is the air reading for: Living Room, Bedroom, ...
+[WarmUP] The separate Air tile duplicates the Thermostat reading for 6 room(s) —
+         set "disableAirSensor": true to hide it
+```
+
+The separate temperature tile always shows the reading the Thermostat is
+**not** showing, named from the device's own word for it:
+
+| Device sensor mode | Second probe fitted? | The extra tile |
+|---|---|---|
+| Air | yes | **`<room> Floor`** — floor temperature |
+| Air | no | `<room> Air` — duplicates the Thermostat; safe to hide |
+| Floor | yes | `<room> Air` — air temperature |
+
+A device with no second probe reports a placeholder rather than a real
+temperature. The plugin recognises it and falls back to the air reading, so
+you never see a fictitious value.
 
 ### Energy graphs may show nothing
 
