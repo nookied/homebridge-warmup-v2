@@ -43,10 +43,12 @@ Open the iOS Home app:
 
 - [ ] All N thermostat tiles appear in the room they were assigned to
 - [ ] Each tile shows current temperature within ±0.5 °C of the value on the physical thermostat display (that display shows **ambient temperature**; the *setpoint* is only visible in the Warmup app)
+- [ ] **Readings are live, not frozen.** Note a couple of current temperatures, wait two polling intervals, and check they have moved (or at least that the room genuinely has not changed). Since v3.12.0 a missing reading is *skipped* rather than published, so a mis-normalized field shows as a stale-but-plausible number with nothing in the log — a frozen tile is the only symptom
 - [ ] Each tile shows the correct target temperature
 - [ ] Tap a tile to open it: target/current temperatures, mode buttons all visible
 - [ ] The paired `<name> Air` temperature sensor shows the air-temp probe value
-- [ ] Accessory info (long-press tile → ⓘ): Manufacturer = "Warmup", Model = "Wi-Fi Thermostat", Serial = `warmup4ie-<roomId>`, Firmware = plugin version
+- [ ] Accessory info (long-press tile → ⓘ): Manufacturer = "Warmup", Model = "Wi-Fi Thermostat", Serial = `warmup4ie-<roomId>`
+- [ ] Firmware in that same panel shows the **device** firmware from `appFw` (a value like `29.175`), *not* the plugin version. Since v3.5 the plugin version is only the fallback, used when `appFw` is absent or does not parse as `N.N.N`. Seeing the plugin version on every room means `appFw` is not coming through
 
 ## 3. Control — single room (do these for ONE room first)
 
@@ -182,9 +184,24 @@ Reliability + hygiene patch. Staged on a clean tree; released SHA `2143764`.
   register/unregister at runtime, and that the Home app tile actually appears
   and disappears. The plugin-side logic is proven; the HAP-side integration
   is inferred.
-- Still outstanding and *doable* without extra hardware: `disableHistory`
-  memory saving, Eve history on the default path, the decoded bad-password
-  message, and the §2 Home-app visual smoke.
+- **§2 Home-app visual smoke: passed.** All six tiles present and correct,
+  current temperatures **updating across polls** rather than frozen, and the
+  `<name> Air` sensors reading correctly.
+
+  Both of those carry weight beyond a visual tick. Since v3.12.0 an absent
+  reading is *skipped* rather than published, so a mis-normalized field would
+  surface as a stale-but-plausible number with nothing in the log — moving
+  temperatures are the only available evidence that the `tenths()` /
+  `toCelsius()` rewrite holds on live data over time. And the air sensor
+  specifically exercises the String→Number change: `airTemp` arrives from
+  Warmup as a string and is now normalized to a Number.
+
+  Not separately reported: the accessory-info panel (Manufacturer / Model /
+  Serial / Firmware). Cosmetic, and `Firmware` showing the plugin version
+  instead of the device's `appFw` would be harmless.
+- Still outstanding and *doable* without extra hardware: the decoded
+  bad-password message, `disableHistory` memory saving, and Eve history on
+  the default path.
 
 ---
 
