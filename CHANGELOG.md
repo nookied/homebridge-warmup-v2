@@ -21,6 +21,41 @@ no HomeKit accessory shape change.
   longer than 10 s from a domestic connection. Each one costs a whole poll
   cycle of stale data in HomeKit.
 
+### Documentation
+
+Findings from a full audit of every factual claim in the docs against the
+code, rather than a read-through for plausibility.
+
+- **CLAUDE.md's HomeKit mapping table was five releases stale.** It listed
+  five characteristics; the plugin publishes twelve. Missing entirely:
+  `StatusFault` (v3.3), `StatusActive` and `RemainingDuration` (v3.4), the Eve
+  `TotalConsumption` characteristic (v3.5), the Vacation/Frost switches
+  (v3.6), and the child-lock `LockMechanism` (v3.7). Three surviving rows were
+  also wrong: `CurrentHeatingCoolingState` documented only the pre-v3.4
+  temperature-delta heuristic and not the relay signal that supersedes it;
+  `TemperatureSensor.CurrentTemperature` still said "parsed from string" after
+  v3.12.0 made it a Number; and it claimed `validValues: [0, 1]` on
+  `CurrentHeatingCoolingState`, which the code has never set — only the
+  *Target* characteristic restricts validValues.
+- **ROADMAP.md** still described the project as "v3.0.0 + unreleased polish",
+  twelve releases behind, and its Verified-Plugin table asserted "no disk
+  files yet" — untrue since v3.2, when fakegato began writing history under
+  `api.user.storagePath()`. (The requirement still passes; the note was
+  simply wrong.)
+- **The CI Node matrix was corrected in one of four places** when it was first
+  updated. The architecture tree, the CI/secrets section, and the file
+  reference table all still said 18/20/22/24. All four now agree with
+  `ci.yml`.
+- README gained a note that rooms added or removed in MyHeating now sync
+  without a restart — user-visible since v3.12.0 and previously undocumented
+  — including why renames deliberately still wait for a restart.
+- Two unit-test files (`firmware-and-energy`, `eve-characteristic`) existed
+  but appeared in neither the architecture tree nor the file reference table.
+- Verified clean and left alone: all config keys agree across code,
+  `config.schema.json`, README and CLAUDE.md; every one of the 33 functions
+  named in the architecture tree exists; the tuning constants match the
+  schema's min/max; zero broken internal links or anchors.
+
 ### Fixed
 
 - **Polls can no longer stack on top of each other.** A single poll can issue

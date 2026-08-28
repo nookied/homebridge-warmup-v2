@@ -42,6 +42,7 @@ homebridge-warmup4ie-v2/
 │   │   │   ├── reconcileAccessories(rooms)       Diff live vs cached → register/unregister/update deltas
 │   │   │   ├── startPolling()                    setInterval(getStatus + reconcile-if-changed + push); skips while a poll is in flight
 │   │   │   └── shutdown()                        Clear poll timer + pending debouncers (api 'shutdown' event)
+│   │   ├── loadFakeGatoHistory()                Deferred fakegato require — skipped entirely by disableHistory
 │   │   ├── attachAccessoryServices(p, acc, room) Idempotent service setup (Information/Thermostat/TemperatureSensor)
 │   │   ├── pushRoomState(acc, room)              Updates HAP characteristics from a room snapshot
 │   │   ├── updateAccessoryState(p, room)         Looks up acc by UUID, refreshes context.room + pushRoomState
@@ -84,7 +85,9 @@ homebridge-warmup4ie-v2/
 │   ├── unit/
 │   │   ├── _fetch.test.js                    Generic fetch + _rest + _graphql + _isTokenError
 │   │   ├── wire-format.test.js               GraphQL mutation+variables byte-for-byte
-│   │   └── state-derivers.test.js            Truth tables for both derivers
+│   │   ├── state-derivers.test.js            Truth tables for both derivers
+│   │   ├── firmware-and-energy.test.js       deriveFirmwareRevision + deriveTotalConsumption
+│   │   └── eve-characteristic.test.js        Eve TotalConsumption characteristic definition
 │   ├── integration/
 │   │   ├── bootstrap.test.js                 REST login → GraphQL owned[] → callback
 │   │   ├── poll.test.js                      getStatus refreshes/replaces cache
@@ -105,7 +108,7 @@ homebridge-warmup4ie-v2/
 │   └── hbConfig/                             Sandbox Homebridge config for `npm run watch`
 │
 ├── .github/workflows/
-│   ├── ci.yml                                Lint + test + smoke on Node 18/20/22/24, every push + PR
+│   ├── ci.yml                                Lint + test + smoke on Node 22/24/26, every push + PR
 │   └── release.yml                           Tag-driven (v*) npm publish + GitHub Release
 │
 ├── eslint.config.mjs                         ESLint v9 flat config (commonjs, jest, node globals)
@@ -155,13 +158,29 @@ Temperatures from the GraphQL API are integers in tenths of °C on `Room` (`195`
 
 ## HomeKit mapping
 
+Every temperature below is normalized to tenths of °C by `tenths()` in
+`normalizeRoom`, converted with `toCelsius()`, and **written only when the
+result is finite** — an absent reading is skipped, not published as 0 °C.
+
 | HomeKit characteristic | Source | Notes |
 |---|---|---|
-| `Thermostat.CurrentTemperature` | `room.currentTemp/10` | `minValue: -100, maxValue: 100` |
-| `Thermostat.TargetTemperature` | `effectiveTargetTemp(room)/10` | Bounds set from `room.minTemp/maxTemp`. Helper clamps to ≥ minTemp because Warmup occasionally returns targets below the device floor. |
-| `Thermostat.CurrentHeatingCoolingState` | `deriveCurrentHeatingState(room)` | `off → OFF`, otherwise `currentTemp<targetTemp ? HEAT : OFF`. validValues: `[0, 1]` (no COOL emitted) |
-| `Thermostat.TargetHeatingCoolingState` | `deriveTargetHeatingState(room)` | `off → OFF`, `fixed/override → HEAT`, `schedule → AUTO`, default HEAT. validValues: `[0, 1, 3]` |
-| `TemperatureSensor.CurrentTemperature` | `room.airTemp/10` (parsed from string) | Separate `<name> Air` service |
+| `Thermostat.CurrentTemperature` | `toCelsius(room.currentTemp)` | `minValue: -100, maxValue: 100`. Skipped when absent. |
+| `Thermostat.TargetTemperature` | `toCelsius(effectiveTargetTemp(room))` | Bounds from `room.minTemp/maxTemp`, but **only when the range is finite and min < max** — otherwise HomeKit's defaults are kept and a warning is logged. `effectiveTargetTemp` clamps up to `minTemp` (Warmup sometimes returns targets below the device floor) but returns `null` when there is no target, and refuses to clamp against an inverted range. |
+| `Thermostat.CurrentHeatingCoolingState` | `deriveCurrentHeatingState(room)` | Precedence: `hasThermostat === false → OFF`; `runMode === 'off' → OFF`; `parameters.outputStatus` (the real relay signal, since v3.4) → non-zero = HEAT; else the legacy `currentTemp < targetTemp` heuristic. Only 0/1 are ever emitted, though `validValues` is left at the HAP default — only the *Target* characteristic restricts it. |
+| `Thermostat.TargetHeatingCoolingState` | `deriveTargetHeatingState(room)` | `off/holiday/anti_frost → OFF`, `fixed/override → HEAT`, `schedule/gradual → AUTO`, default HEAT. `setProps({ validValues: [0, 1, 3] })` — no COOL. |
+| `Thermostat.StatusFault` | `deriveStatusFault(room)` | `GENERAL_FAULT` when any of `isFaultAir` / `isFaultFloor1` / `isFaultFloor2` is set. (v3.3) |
+| `Thermostat.StatusActive` | `deriveStatusActive(room)` | `false` when `hasThermostat === false` (no hardware paired) or `lastPoll > 20` minutes. Missing `lastPoll` errs toward `true`. (v3.4) |
+| `Thermostat.RemainingDuration` | `deriveRemainingDuration(room)` | `overrideDur × 60` seconds. Range widened to `MAX_DURATION_MINUTES × 60` (24 h) because HAP's default caps at 1 h. (v3.4) |
+| `Thermostat.<Eve TotalConsumption>` | `deriveTotalConsumption(room)` | Custom Eve characteristic, UUID `E863F10C-…`, from `room.total` (cumulative kWh). Returns `null` when unknown and the write is **skipped** — writing 0 would collapse Eve's cumulative graph. (v3.5) |
+| `TemperatureSensor.CurrentTemperature` | `toCelsius(room.airTemp)` | Separate `<name> Air` service; `minValue: -100, maxValue: 100`. Hidden by `disableAirSensor`. Skipped when absent. |
+| `LockMechanism.LockCurrentState` / `.LockTargetState` | `room.lock` | From `parameters.lock` (Int 0/1 on the wire, Boolean in our shape). Optimistic update on tap; the next poll reconciles. Hidden by `disableChildLock`. (v3.7) |
+| `Switch.On` — *Vacation Mode* | any room `runMode === 'holiday'` | Synthetic per-location accessory. Hidden by `disableVacationSwitch`. (v3.6) |
+| `Switch.On` — *Frost Protection* | any room `runMode === 'anti_frost'` | Synthetic per-location accessory. Hidden by `disableFrostSwitch`. (v3.6) |
+
+`AccessoryInformation` carries Manufacturer `Warmup`, Model `Wi-Fi Thermostat`
+(generic — see Known issues), SerialNumber `warmup4ie-<roomId>`, and
+FirmwareRevision from `appFw` when it parses as SemVer-ish, else the plugin
+version.
 
 ### Mode write semantics (`handleTargetHeatingCoolingSet`)
 
@@ -246,7 +265,7 @@ Or via Homebridge UI: Plugins tab → search for `homebridge-warmup4ie-v2` → I
 
 ### CI / secrets
 
-- `.github/workflows/ci.yml` — lint + test + smoke on Node 18.20 / 20.15 / 22 / 24, every push and PR.
+- `.github/workflows/ci.yml` — lint + test + smoke on Node 22 / 24 / 26, every push and PR.
 - `.github/workflows/release.yml` — tag-driven (`v*`) publish + Release. Verifies tag matches `package.json` version before publishing.
 - **No npm secret is required.** Publishing uses npm **trusted publishing** (GitHub OIDC), configured on npmjs.com under the package's *Trusted Publisher* settings: org `nookied`, repo `homebridge-warmup-v2`, workflow filename `release.yml`, environment blank. The workflow's `id-token: write` permission is the only credential in the path.
   - This replaced a long-lived Granular Access Token in v3.12.0. That token expired silently after 90 days and broke the release with a **`404 Not Found - PUT`** — npm reports a dead or unauthorized token as a missing package, so a 404 on publish means *auth*, not a missing package. Trusted publishing has no expiry, so this cannot recur.
@@ -270,8 +289,9 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 ### Open
 1. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `deviceSN` today, but the plugin does not yet fetch/use enough reliable per-model metadata for all supported devices. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
 2. **Partial `deviceAdvanced` integration only** — child lock is surfaced, but display brightness and sensor offsets are still intentionally deferred. Roadmap **M6**.
-3. **`room.cost` not surfaced.** Available in `normalizeRoom`, no HomeKit/Eve home for it (Eve has no standard cost characteristic). Could add as a custom characteristic if a user asks.
-4. **`fakegato-history` drags in `googleapis`.** `fakegato-history@0.6.7` declares `googleapis` as a hard dependency, and `fakegato-storage.js` requires its Google Drive backend at the *top level* — so it loads on every start even though we only ever pass `storage: 'fs'`. Measured by booting the real platform both ways in separate processes: **110.5 MB → 5.9 MB RSS, 1049 → 10 modules**, plus ~194 MB on disk. **Mitigated, not solved,** in v3.12.0: the load is deferred and `disableHistory` skips it entirely, so anyone not using Eve.app pays nothing. Users who *do* want Eve graphs still pay in full.
+3. **`test/hbConfig/auth.json` is committed.** It holds the sandbox Homebridge-UI account used by `npm run watch` — username `test`, admin, with a salted 128-char password hash. Low severity: it is a hash, not a plaintext password, and the account only exists on a local sandbox instance. But it is a credential artifact in a public repo, it is not in `.gitignore` (unlike its sibling `config.json`), and Homebridge UI regenerates the file on first run if absent — so nothing needs it. Untracking it plus adding a `.gitignore` entry is the fix; note that `git rm --cached` does **not** remove it from history, and rewriting history for a sandbox `test` hash is almost certainly disproportionate.
+4. **`room.cost` not surfaced.** Available in `normalizeRoom`, no HomeKit/Eve home for it (Eve has no standard cost characteristic). Could add as a custom characteristic if a user asks.
+5. **`fakegato-history` drags in `googleapis`.** `fakegato-history@0.6.7` declares `googleapis` as a hard dependency, and `fakegato-storage.js` requires its Google Drive backend at the *top level* — so it loads on every start even though we only ever pass `storage: 'fs'`. Measured by booting the real platform both ways in separate processes: **110.5 MB → 5.9 MB RSS, 1049 → 10 modules**, plus ~194 MB on disk. **Mitigated, not solved,** in v3.12.0: the load is deferred and `disableHistory` skips it entirely, so anyone not using Eve.app pays nothing. Users who *do* want Eve graphs still pay in full.
    **Why it can't be fixed properly from here:** `overrides` in a package's own manifest are ignored when it is installed as a dependency; `patch-package` only patches the tree of the project that runs it, and a postinstall rewriting another package's files on a user's machine is fragile across hoisting layouts and inappropriate for a Verified plugin. Upstream is effectively unmaintained (0.6.7 is latest, published 2025-03-24) and there is **no maintained fork on npm** (checked 2026-08-28). The remaining real options are: publish our own patched fork of fakegato under a scoped name, or reimplement the small slice of the Eve history format we actually use. Both are real commitments; neither is scheduled.
 
 ### Resolved
@@ -337,6 +357,8 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 | `test/unit/_fetch.test.js` | Generic fetch + REST + GraphQL transport + token-error pattern |
 | `test/unit/wire-format.test.js` | GraphQL mutation + variables shape assertions |
 | `test/unit/state-derivers.test.js` | Truth tables for the two heating-state derivers |
+| `test/unit/firmware-and-energy.test.js` | `deriveFirmwareRevision` + `deriveTotalConsumption` (incl. the null-vs-zero contract) |
+| `test/unit/eve-characteristic.test.js` | Eve `TotalConsumption` custom-characteristic definition |
 | `test/integration/bootstrap.test.js` | REST login → GraphQL owned[] → callback (full happy + error paths) |
 | `test/integration/poll.test.js` | getStatus refreshes cache; multiple polls don't duplicate |
 | `test/integration/error-recovery.test.js` | Failed poll cache preservation + 401 token-refresh sequence |
@@ -344,8 +366,9 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 | `test/live/api.test.js` | Opt-in live API tests (gated by `WARMUP_LIVE_TEST=1`) |
 | `test/fixtures/*.json` | Sanitized API response samples (REST login + GraphQL owned/unpaired/error/mutation). **Keep `graphql.owned.json` in step with `GQL_OWNED_AND_ROOMS`** — it silently went three releases stale before v3.12.0, leaving the newer fields with no integration coverage. |
 | `test/helpers.js` | Shared test utilities (fetch stubbing, response builder, fixture loader) |
-| `test/hbConfig/config.json` | Sandbox Homebridge config for `npm run watch` |
-| `.github/workflows/ci.yml` | Lint + test + smoke on Node 18/20/22/24, every push + PR |
+| `test/hbConfig/config.json` | Sandbox Homebridge config for `npm run watch` (gitignored; the copy at HEAD has placeholder credentials) |
+| `test/hbConfig/auth.json` | Sandbox Homebridge-UI account (`test`) — **tracked, and arguably should not be**; see Known issues |
+| `.github/workflows/ci.yml` | Lint + test + smoke on Node 22/24/26, every push + PR |
 | `.github/workflows/release.yml` | Tag-driven npm publish + GitHub Release |
 | `eslint.config.mjs` | ESLint v9 flat config |
 | `package.json` | Package metadata, scripts, deps |

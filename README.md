@@ -134,6 +134,16 @@ HomeKit thermostats expose four modes; this plugin only uses three:
 | **Auto** | Resumes the room's program (same as Heat). |
 | **Cool** | Not used — Warmup is a heating-only system. |
 
+### Rooms sync without a restart (since v3.12)
+Add or delete a room in the MyHeating app and it appears or disappears in
+HomeKit within one polling interval — no Homebridge restart needed. Earlier
+versions only discovered rooms at startup.
+
+Renaming is the exception: a room renamed in the Warmup app still picks up its
+new name on the next restart, not on the next poll. That's deliberate — the
+plugin would otherwise overwrite any rename you make in the Home app every 60
+seconds.
+
 ### Off is per-room (since v3.0)
 Tapping Off on one HomeKit thermostat affects only that room. v2 (and the upstream original) used a REST endpoint that turned off the entire location regardless of which room you tapped — v3 switched to the GraphQL transport which exposes a real per-room `deviceOff` operation. If you want the old whole-house off behaviour, build a HomeKit Scene that sets every thermostat to Off at once.
 

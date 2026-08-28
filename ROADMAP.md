@@ -19,9 +19,9 @@ Everything else is incremental polish on top of those three.
 
 ---
 
-## Where we are today (v3.0.0 + unreleased polish)
+## Where we are today (v3.12.0 released; v3.12.1 pending)
 
-✅ GraphQL transport, per-room hard-off, explicit override duration in minutes, native fetch transport, token refresh, surfaced HAP errors, debounced HomeKit writes, config UI schema, full offline test suite, opt-in live tests, CI on Node 18/20/22/24, tag-driven npm publish with provenance, Apache-2.0 LICENSE, README + CHANGELOG + QA_TESTS, fork-isolated from upstream.
+✅ GraphQL transport, per-room hard-off, explicit override duration in minutes, native fetch transport, token refresh, surfaced HAP errors, debounced HomeKit writes, config UI schema, full offline test suite, opt-in live tests, CI on Node 22/24/26, tag-driven npm publish with provenance via OIDC trusted publishing (no npm token), Apache-2.0 LICENSE, README + CHANGELOG + QA_TESTS, fork-isolated from upstream.
 
 ⚠️ Single-location operation, generic model metadata, and no surfaced cost history remain. Heating state now prefers Warmup's relay/output signal with temperature-delta inference only as a fallback.
 
@@ -37,12 +37,12 @@ Source: [`homebridge/plugins` requirements](https://github.com/homebridge/plugin
 | 2 | Doesn't duplicate an existing verified plugin | ✅ | None |
 | 3 | Published to npm with source on GitHub, issues enabled | ✅ | None |
 | 4 | A GitHub release per new version with notes | 🟡 | Auto-created by `release.yml` going forward |
-| 5 | Runs on supported LTS Node versions | ✅ | CI covers the package's declared Node range (18.20 / 20.15 / 22 / 24). Re-check Homebridge's current LTS policy before applying for Verified. |
+| 5 | Runs on supported LTS Node versions | ✅ | CI covers the package's declared range (22 / 24 / 26), which matches Homebridge 2.4's own `engines`. Raised in v3.12.0: Node 18 and 20 are EOL. |
 | 6 | Installs successfully and doesn't start unless configured | ✅ | None |
 | 7 | No TTY / non-standard startup parameters | ✅ | None |
 | 8 | Implements Settings GUI via `config.schema.json` | ✅ | None |
 | 9 | No analytics / user-tracking | ✅ | None |
-| 10 | Files stored under HB storage dir | ✅ | None (no disk files yet) |
+| 10 | Files stored under HB storage dir | ✅ | fakegato history is written under `api.user.storagePath()` (since v3.2), which is the Homebridge storage dir. The plugin writes nothing outside it. |
 | 11 | Catches and logs own errors, no unhandled exceptions | ✅ | Missing config and bootstrap failure now return no accessories and do not start polling. |
 
 **All requirements met as of v3.1.0.** Verified-Plugin application is queued as Milestone 7 — wait for a few weeks of stability + a couple of installs first, then file via the standard `homebridge/plugins` issue template.
