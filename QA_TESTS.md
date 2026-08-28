@@ -153,6 +153,52 @@ If any item failed, do **not** tag. File an issue in the repo, fix on the branch
 Keep the checklist above blank and reusable; record each release's actual
 result here, including what was *not* run.
 
+### v3.13.1 — 2026-08-28 (unreleased; field-verified)
+
+Vendored `fakegato-history`, Google Drive backend removed. Tested by packing
+the tarball and installing it on the live Pi 5 — i.e. exactly what a user
+would receive, not a git checkout.
+
+**Passed**
+
+| | before | after |
+|---|---|---|
+| plugin directory on the Pi | 211 MB | **392 kB** |
+| child-bridge RSS (settled) | ~170 MB | **109.6 MB** |
+| nested dependencies | 95 packages | `debug`, `ms` |
+| `lib/googleDrive.js` shipped | — | absent |
+
+- Clean startup: 6 rooms found, no errors of any kind, M8 sensor-mode
+  diagnostic present.
+- **Eve history is genuinely still working** — all six `*_persist.json` files
+  updating on schedule, checked repeatedly over several minutes. This is the
+  check that mattered: the test suite mocks the history module, so a bad copy
+  would pass every offline test. The Drive removal touches
+  `fakegato-storage.js`, which the `fs` path shares, so this had to be
+  observed rather than inferred.
+- The warmup child bridge is now the second-lightest of six on that host
+  (109 MB, against 231 MB for `slwf-01pro` and 216 MB for the main process).
+  It was the heaviest before this change.
+
+**Note on the estimate**
+
+Predicted "~170 MB down to something like 60"; actual is **109.6 MB**. The
+4 MB require figure came from a bare Node process, whereas a child bridge
+carries HAP, the plugin and its own runtime regardless. The saving is real
+(~60 MB, consistent with the earlier `disableHistory` measurement) but the
+floor is higher than that figure implied. Quote the in-situ number.
+
+**Still to do before release**
+
+- Bump to 3.13.1 (`package.json` still says 3.13.0; the Pi is running a
+  tarball built from that).
+- Live API test — unchanged wire protocol since 3.13.0, so low risk, but the
+  release checklist asks for it.
+- Hold the tag until the Verified badge lands: vendored third-party code is
+  worth not introducing mid-review.
+
+---
+
 ### v3.13.0 — 2026-08-28
 
 M8: labelled secondary temperature reading. Released SHA to follow.
