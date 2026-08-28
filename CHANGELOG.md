@@ -176,12 +176,20 @@ to a write race, and rooms that needed a Homebridge restart to appear.
 
   | | history on | `disableHistory: true` |
   |---|---|---|
-  | RSS | 110.5 MB | **5.9 MB** |
+  | RSS (isolated `require`, dev Mac) | 110.5 MB | **5.9 MB** |
   | modules loaded | 1049 | **10** |
   | googleapis loaded | yes | **no** |
 
   That is per Homebridge process, on every start, plus ~194 MB in
-  `node_modules`. The fakegato load is now deferred to first use, so setting
+  `node_modules`.
+
+  > **Corrected in v3.12.1 after measuring on real hardware.** The figures
+  > above come from requiring the module in an isolated Node process, which
+  > overstates what a user actually saves. Measured in situ on a Raspberry
+  > Pi 5 — child-bridge RSS, settled, config applied by a full Homebridge
+  > restart — the saving is **172–179 MB → 107–108 MB, i.e. ~65 MB**. Still
+  > substantial, about 38% of the process, but not the ~105 MB originally
+  > claimed here and in the README. The fakegato load is now deferred to first use, so setting
   the toggle means the module is never required at all rather than merely
   unused. No HomeKit characteristic behaves differently either way, and
   history already written to disk is left untouched, so it can be turned back

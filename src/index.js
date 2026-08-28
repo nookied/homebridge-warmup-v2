@@ -104,9 +104,9 @@ module.exports = function (homebridge) {
 // `fakegato-storage.js` requires the Google Drive backend at module top
 // level — so merely requiring fakegato pulls in the whole googleapis client
 // even though this plugin only ever passes `storage: 'fs'`. Measured on a
-// development Mac: ~600 ms, ~97 MB RSS, 1039 modules, 194 MB on disk. A
-// Raspberry Pi, which is what most Homebridge installs run on, is several
-// times slower.
+// Raspberry Pi 5: ~860 ms, 1039 modules, 194 MB on disk. In isolation the
+// require costs ~119 MB RSS; measured in situ against a running child
+// bridge the attributable saving is ~65 MB (172-179 MB -> 107-108 MB).
 //
 // We cannot fix that for users from here: `overrides` in a package's own
 // manifest are ignored when it is installed as a dependency, and
@@ -162,7 +162,7 @@ function warmup4iePlatform(log, config = {}, api) {
   // Skips the per-thermostat Eve history service entirely — and, because the
   // load is deferred, avoids pulling `fakegato-history` (and the googleapis
   // client it drags in) into the Homebridge process at all. Worth roughly
-  // 97 MB of RSS and half a second of startup per Homebridge process; see
+  // 65 MB of RSS per Homebridge process, measured on a Pi 5; see
   // loadFakeGatoHistory(). Only affects Eve.app's temperature/heating graphs
   // — every HomeKit characteristic behaves identically either way.
   this.disableHistory = Boolean(config.disableHistory);

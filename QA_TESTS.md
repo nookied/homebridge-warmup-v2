@@ -103,7 +103,20 @@ prove. Each is written so a failure is unambiguous.
 - [ ] **No log/disk churn when nothing changes** — leave it idle for 5+ minutes. `Warmup room list changed` must appear **only** when you actually add or remove a room. Repeated occurrences mean the change detection is misfiring and Homebridge is rewriting its accessory cache every poll.
 - [ ] **Renaming still behaves as before** — rename a room in the Home app. It must *not* be reverted on the next poll (only on restart, as in previous versions). Reversion within a minute means the change detection is wrongly treating names as identity.
 - [ ] **Rapid successive setpoint changes land in order** — set 20 °C, wait ~2 s, set 24 °C, wait for the poll. **Read the setpoint in the Warmup app, not off the thermostat** (the device display shows ambient room temperature, not the target). It must end at **24 °C**; ending at 20 °C is the write-ordering race returning. Note this failure is *silent* — both writes succeed and nothing is logged — so the app reading is the only signal.
-- [ ] **`disableHistory` saves memory** — note Homebridge's RSS (`systemctl status homebridge`, or the Homebridge UI status page). Set `"disableHistory": true`, restart, compare. Expect roughly **100 MB lower** for this plugin's process. Then confirm every thermostat tile still reads and controls normally — only Eve.app graphs should be gone.
+- [ ] **`disableHistory` saves memory** — measure the **child-bridge** process, not all of Homebridge; other plugins would swamp the signal. Find its PID (`Child bridge starting (pid NNNN)` in the log) and read settled RSS at 3+ minutes uptime: `ps -o rss= -p PID`. Set `"disableHistory": true`, **restart all of Homebridge** (see the warning below), measure again at matched uptime. Expect roughly **65 MB lower** (measured Pi 5: 172–179 MB → 107–108 MB). Then confirm every thermostat tile still reads and controls normally — only Eve.app graphs should be gone.
+
+> ⚠️ **A config change does not reach a plugin running in a child bridge until
+> Homebridge is fully restarted.** Restarting only the child bridge — via the
+> UI button, or by killing its PID — makes the *parent* respawn it from the
+> config the parent still holds in memory, so `config.json` is never re-read
+> and the edit appears to do nothing. This cost a full round of measurements
+> during v3.12.1 QA: two runs came out identical and looked like a broken
+> toggle, when the toggle had simply never been applied. Use
+> `sudo systemctl restart homebridge`.
+
+> Node RSS is inflated for the first minute or two after start and then
+> settles. Compare like-for-like uptimes or the startup spike will drown the
+> difference — a 1-minute reading came in *higher* with the option enabled.
 - [ ] **Eve history still works with the default** — set `disableHistory` back to `false`, restart, open Eve.app, and confirm the temperature history graph is still populating. This is the path the lazy load could plausibly break.
 - [ ] **Uncommissioned room** *(only if you can make one)* — create a room in the MyHeating app but pair no thermostat to it. The tile should appear as **not responding / inactive** rather than showing a plausible-looking idle thermostat, and must not log HAP "illegal value" warnings.
 
@@ -209,9 +222,32 @@ Reliability + hygiene patch. Staged on a clean tree; released SHA `2143764`.
   exercised in the field. Child lock, the Vacation and Frost switches, and
   the air sensor have offline coverage only. Worth knowing before treating
   "it works on the maintainer's system" as broad validation.
+- **`disableHistory` memory saving: passed, and the published figure was
+  wrong.** Measured on the live Pi 5, child-bridge RSS, settled, config
+  applied by a full Homebridge restart:
+
+  | | history on | `disableHistory: true` |
+  |---|---|---|
+  | child-bridge RSS | 172–179 MB | 107–108 MB |
+
+  **~65 MB, about 38% of the process** — not the ~105 MB claimed in the
+  README, `config.schema.json`, CLAUDE.md and the Verified application. That
+  number came from requiring the module in an isolated Node process on a dev
+  Mac, which overstates what a user actually saves. All repo docs corrected;
+  the application comment left as-is (a footnote, not a load-bearing claim).
+
+  Corroborated rather than inferred: fakegato's `*_persist.json` files stopped
+  being written the moment the toggle took effect, so the module genuinely was
+  not loaded.
+
+  Two methodology traps hit along the way, both now documented in §5b: config
+  changes do not reach a child bridge without a *full* Homebridge restart, and
+  Node RSS is inflated for the first minute or two after start.
+
+  Host state restored afterwards: `disableHistory` removed, Homebridge
+  restarted, 6 rooms, 170 MB settled.
 - Still outstanding and *doable* without extra hardware: the decoded
-  bad-password message, `disableHistory` memory saving, and Eve history on
-  the default path.
+  bad-password message, and Eve history on the default path.
 
 ---
 

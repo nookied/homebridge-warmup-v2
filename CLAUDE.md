@@ -207,7 +207,7 @@ Manual temperature changes go through `setTargetTemperature` → GraphQL `device
     "disableVacationSwitch": false,     // optional; hide location-wide Vacation Mode switch
     "disableFrostSwitch": false,        // optional; hide location-wide Frost Protection switch
     "disableAirSensor": false,          // optional; hide standalone air-temp sensor tile (air reading still on Thermostat.CurrentTemperature)
-    "disableHistory": false             // optional; skip Eve history — also avoids requiring fakegato/googleapis at all (~105 MB RSS)
+    "disableHistory": false             // optional; skip Eve history — also avoids requiring fakegato/googleapis at all (~65 MB RSS, measured on a Pi 5)
   }]
 }
 ```
@@ -215,6 +215,16 @@ Manual temperature changes go through `setTargetTemperature` → GraphQL `device
 `config.schema.json` provides a form-based editor in the Homebridge UI. Sandbox copy at `test/hbConfig/config.json` (creds blanked).
 
 Multi-location accounts: only the **first** location is exposed (`user.owned[0]`). This is by design — see "Known issues → By design".
+
+### Operational gotcha: child bridges and config reloads
+
+A plugin running in a **child bridge** does not see a `config.json` change
+until **all of Homebridge** restarts. Restarting just the child bridge — the
+UI button, or `kill <child-pid>` — makes the parent respawn it from the config
+the parent already holds in memory. The file is never re-read, so the edit
+silently does nothing. Use `sudo systemctl restart homebridge` when testing
+config-driven behaviour on a real host; this wasted a full round of
+measurements during v3.12.1 QA.
 
 ## Development workflow
 
@@ -290,7 +300,7 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 1. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `deviceSN` today, but the plugin does not yet fetch/use enough reliable per-model metadata for all supported devices. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
 2. **Partial `deviceAdvanced` integration only** — child lock is surfaced, but display brightness and sensor offsets are still intentionally deferred. Roadmap **M6**.
 3. **`room.cost` not surfaced.** Available in `normalizeRoom`, no HomeKit/Eve home for it (Eve has no standard cost characteristic). Could add as a custom characteristic if a user asks.
-4. **`fakegato-history` drags in `googleapis`.** `fakegato-history@0.6.7` declares `googleapis` as a hard dependency, and `fakegato-storage.js` requires its Google Drive backend at the *top level* — so it loads on every start even though we only ever pass `storage: 'fs'`. Measured by booting the real platform both ways in separate processes: **110.5 MB → 5.9 MB RSS, 1049 → 10 modules**, plus ~194 MB on disk. **Mitigated, not solved,** in v3.12.0: the load is deferred and `disableHistory` skips it entirely, so anyone not using Eve.app pays nothing. Users who *do* want Eve graphs still pay in full.
+4. **`fakegato-history` drags in `googleapis`.** `fakegato-history@0.6.7` declares `googleapis` as a hard dependency, and `fakegato-storage.js` requires its Google Drive backend at the *top level* — so it loads on every start even though we only ever pass `storage: 'fs'`. Cost measured **in situ on a Raspberry Pi 5**, child-bridge RSS settled, config applied via a full Homebridge restart: **172–179 MB with history on → 107–108 MB with `disableHistory: true`**, i.e. **~65 MB, about 38% of the process**. Requiring the module in isolation shows a larger ~119 MB delta; the in-situ figure is the one to quote, and an earlier "~105 MB" claim derived from a dev-Mac isolated measurement was wrong. Also ~194 MB on disk. **Mitigated, not solved,** in v3.12.0: the load is deferred and `disableHistory` skips it entirely, so anyone not using Eve.app pays nothing. Users who *do* want Eve graphs still pay in full.
    **Why it can't be fixed properly from here:** `overrides` in a package's own manifest are ignored when it is installed as a dependency; `patch-package` only patches the tree of the project that runs it, and a postinstall rewriting another package's files on a user's machine is fragile across hoisting layouts and inappropriate for a Verified plugin. Upstream is effectively unmaintained (0.6.7 is latest, published 2025-03-24) and there is **no maintained fork on npm** (checked 2026-08-28). The remaining real options are: publish our own patched fork of fakegato under a scoped name, or reimplement the small slice of the Eve history format we actually use. Both are real commitments; neither is scheduled.
 
 ### Resolved
