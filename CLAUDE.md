@@ -187,7 +187,8 @@ Manual temperature changes go through `setTargetTemperature` → GraphQL `device
     "disableChildLock": false,          // optional; hide per-thermostat Lock tile (Element model doesn't honour the mutation)
     "disableVacationSwitch": false,     // optional; hide location-wide Vacation Mode switch
     "disableFrostSwitch": false,        // optional; hide location-wide Frost Protection switch
-    "disableAirSensor": false           // optional; hide standalone air-temp sensor tile (air reading still on Thermostat.CurrentTemperature)
+    "disableAirSensor": false,          // optional; hide standalone air-temp sensor tile (air reading still on Thermostat.CurrentTemperature)
+    "disableHistory": false             // optional; skip Eve history — also avoids requiring fakegato/googleapis at all (~105 MB RSS)
   }]
 }
 ```
@@ -265,7 +266,8 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 1. **Per-thermostat `Model` is generic** — the GraphQL `Thermostat4iE` type carries `deviceSN` today, but the plugin does not yet fetch/use enough reliable per-model metadata for all supported devices. Set as `"Wi-Fi Thermostat"` for now. Roadmap **M6**.
 2. **Partial `deviceAdvanced` integration only** — child lock is surfaced, but display brightness and sensor offsets are still intentionally deferred. Roadmap **M6**.
 3. **`room.cost` not surfaced.** Available in `normalizeRoom`, no HomeKit/Eve home for it (Eve has no standard cost characteristic). Could add as a custom characteristic if a user asks.
-4. **`fakegato-history` drags in `googleapis`.** `fakegato-history@0.6.7` declares `googleapis` as a hard dependency, and `fakegato-storage.js` requires its Google Drive module at the *top level* — so it loads on every Homebridge start even though we only ever pass `storage: 'fs'`. Measured cost of the `require` alone: **194 MB** on disk, **~97 MB RSS**, **~600 ms** startup, 1039 modules (on a dev Mac; a Pi is several times slower). It is also the only thing that has ever put a CVE in our production tree (`qs`, patched in 3.12.0). fakegato is effectively unmaintained — 0.6.7 is latest, last published 2025-03-24 — so the realistic options are `patch-package` to make that one require lazy, or accepting it. **Undecided; flagged in the 3.12.0 changelog.**
+4. **`fakegato-history` drags in `googleapis`.** `fakegato-history@0.6.7` declares `googleapis` as a hard dependency, and `fakegato-storage.js` requires its Google Drive backend at the *top level* — so it loads on every start even though we only ever pass `storage: 'fs'`. Measured by booting the real platform both ways in separate processes: **110.5 MB → 5.9 MB RSS, 1049 → 10 modules**, plus ~194 MB on disk. **Mitigated, not solved,** in v3.12.0: the load is deferred and `disableHistory` skips it entirely, so anyone not using Eve.app pays nothing. Users who *do* want Eve graphs still pay in full.
+   **Why it can't be fixed properly from here:** `overrides` in a package's own manifest are ignored when it is installed as a dependency; `patch-package` only patches the tree of the project that runs it, and a postinstall rewriting another package's files on a user's machine is fragile across hoisting layouts and inappropriate for a Verified plugin. Upstream is effectively unmaintained (0.6.7 is latest, published 2025-03-24) and there is **no maintained fork on npm** (checked 2026-08-28). The remaining real options are: publish our own patched fork of fakegato under a scoped name, or reimplement the small slice of the Eve history format we actually use. Both are real commitments; neither is scheduled.
 
 ### Resolved
 - **v2.0:** restored `setRoomOff` body (regression in upstream 0.1.0); restored local-time `until` (regression in 0.1.0); native fetch (deprecated `request` removed); full test suite; CI; LICENSE; rebrand as `homebridge-warmup4ie-v2`.

@@ -62,6 +62,12 @@
         "default": false,
         "description": "Hides the location-wide Frost Protection HomeKit switch. Cached accessory is removed on next launch."
       },
+      "disableHistory": {
+        "title": "Disable Eve history graphs",
+        "type": "boolean",
+        "default": false,
+        "description": "Turns off the per-thermostat temperature/heating-state history used by Eve.app. Worth enabling if you don't use Eve: the history library hard-depends on the Google APIs client and loads it on every start even though this plugin only stores history on disk — roughly 105 MB of memory and half a second of startup, per Homebridge process. No HomeKit characteristic changes either way; only Eve's graphs are affected. Existing history files on disk are left alone."
+      },
       "disableAirSensor": {
         "title": "Hide standalone air-temp sensor",
         "type": "boolean",

@@ -1129,6 +1129,36 @@ describe('warmup4ie dynamic platform', () => {
     });
   });
 
+  test('disableHistory: no history service, and fakegato is never required', async () => {
+    const platform = new PlatformCtor(
+      fakeLog(),
+      { username: 'one@example.com', password: 'p', disableHistory: true },
+      api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    expect(accessory).toBeDefined();
+    expect(accessory.historyService).toBeUndefined();
+    expect(historyServices).toHaveLength(0);
+    // The point of the toggle is not merely skipping the service — it is
+    // never requiring `fakegato-history` at all, because that pulls the whole
+    // googleapis client into the Homebridge process (~105 MB RSS measured).
+    // If this ever regresses to an eager require at plugin init, the memory
+    // saving silently disappears while every other assertion still passes.
+    expect(MockFakeGato).not.toHaveBeenCalled();
+
+    // Everything else still works — the toggle only costs Eve.app graphs.
+    const thermo = accessory.getService(api.hap.Service.Thermostat);
+    expect(thermo.getCharacteristic(api.hap.Characteristic.CurrentTemperature).updateValue)
+      .toHaveBeenCalledWith(20);
+
+    platform.shutdown();
+  });
+
   test('shutdown: clears the poll timer and pending debouncers', async () => {
     const platform = new PlatformCtor(
       fakeLog(), { username: 'one@example.com', password: 'p' }, api

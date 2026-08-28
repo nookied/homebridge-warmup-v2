@@ -84,7 +84,30 @@ Add a platform entry to your Homebridge `config.json`:
 | `disableChildLock` | no | `false` | Hide the per-thermostat **Lock** tile. Useful when the model doesn't honour the lock command (Warmup Element Wi-Fi appears to ignore it). Removes any cached lock services on next launch. |
 | `disableVacationSwitch` | no | `false` | Hide the location-wide **Vacation Mode** switch. Removes the cached accessory on next launch. |
 | `disableFrostSwitch` | no | `false` | Hide the location-wide **Frost Protection** switch. Removes the cached accessory on next launch. |
+| `disableHistory` | no | `false` | Turn off the Eve.app history graphs. **Worth enabling if you don't use Eve** — see [Memory use](#memory-use) below; it saves roughly **105 MB of RAM** and half a second of startup per Homebridge process. No HomeKit characteristic changes either way. |
 | `disableAirSensor` | no | `false` | Hide the standalone **"Air"** temperature-sensor tile. The air reading is still on the Thermostat's CurrentTemperature characteristic, so this just removes the redundant second tile for users in air-sensor mode. Leave disabled if your device runs in floor-sensor mode (then the Thermostat reports floor temp and the air tile is the only place to see air temp). Removes any cached air-sensor services on next launch. |
+
+### Memory use
+
+By default this plugin records temperature and heating-state history for
+Eve.app, using the standard `fakegato-history` library. That library declares
+the **Google APIs client** as a hard dependency and loads it on every start —
+for its Google Drive storage backend, which this plugin never uses (history is
+always written to disk). It costs about **105 MB of RAM** and **half a second
+of startup** per Homebridge process, and around 194 MB of disk in
+`node_modules`.
+
+There is no way to avoid that from inside this plugin while history is on, and
+the library is no longer actively maintained. So if you don't use Eve.app, set:
+
+```json
+"disableHistory": true
+```
+
+Nothing else changes — every HomeKit control and reading behaves identically,
+and any history already written to disk is left untouched, so you can turn it
+back on later. On a Raspberry Pi running several plugins, this is usually the
+single biggest saving available here.
 
 ## Recommended: enable Child Bridge
 

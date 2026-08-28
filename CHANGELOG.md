@@ -39,6 +39,40 @@ PATCH because the supported Node range moves.
 
 ### Added
 
+- **`disableHistory`** (default `false`) — turns off the Eve.app history
+  graphs, and with them the single largest cost this plugin imposes.
+
+  `fakegato-history` declares the Google APIs client as a hard dependency and
+  requires its Google Drive backend at the *top level* of
+  `fakegato-storage.js`, so merely requiring fakegato loads the whole thing —
+  even though this plugin only ever passes `storage: 'fs'`. Measured by
+  booting the real platform both ways in separate processes:
+
+  | | history on | `disableHistory: true` |
+  |---|---|---|
+  | RSS | 110.5 MB | **5.9 MB** |
+  | modules loaded | 1049 | **10** |
+  | googleapis loaded | yes | **no** |
+
+  That is per Homebridge process, on every start, plus ~194 MB in
+  `node_modules`. The fakegato load is now deferred to first use, so setting
+  the toggle means the module is never required at all rather than merely
+  unused. No HomeKit characteristic behaves differently either way, and
+  history already written to disk is left untouched, so it can be turned back
+  on later.
+
+  **This mitigates rather than solves the problem** — users who want Eve
+  graphs still pay in full. It cannot be fixed properly from inside this
+  package: `overrides` in a package's own manifest are ignored when it is
+  installed as a dependency, and `patch-package` only patches the tree of the
+  project that runs it, so neither reaches an end user's install. A
+  postinstall rewriting another package's files on a user's machine would be
+  fragile across hoisting layouts and inappropriate for a Verified plugin.
+  Upstream is effectively unmaintained (0.6.7 is latest, published
+  2025-03-24) and there is no maintained fork on npm. The remaining options —
+  publishing our own patched fork, or reimplementing the slice of the Eve
+  history format we use — are real commitments and are not scheduled.
+
 - **Rooms added or removed in the MyHeating app now reach HomeKit without a
   Homebridge restart.** Discovery ran only at `didFinishLaunching`, and the
   poll loop's `updateAccessoryState` returns early for any room it has no
@@ -197,16 +231,10 @@ PATCH because the supported Node range moves.
 
 ### Known, not addressed
 
-- `fakegato-history@0.6.7` declares `googleapis` as a hard dependency and
-  requires its Google Drive module at the top level of
-  `fakegato-storage.js`, so every Homebridge start loads it even though
-  the plugin only ever uses `storage: 'fs'`. Measured: **194 MB** on disk,
-  **~97 MB RSS** and **~600 ms** added to startup (on a development Mac;
-  a Raspberry Pi is several times slower), 1039 modules. fakegato is
-  effectively unmaintained (0.6.7 is latest, last published 2025-03-24),
-  so the options are `patch-package` to make that require lazy, or living
-  with it. Deferred pending a decision.
-
+- The `fakegato-history` → `googleapis` weight is mitigated by
+  `disableHistory` (above) but not removed for users who want Eve graphs.
+  See that entry for why it cannot be fixed from inside this package and
+  what the remaining options are.
 ---
 
 ## [3.11.0] — 2026-05-06
