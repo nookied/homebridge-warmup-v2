@@ -96,7 +96,8 @@ prove. Each is written so a failure is unambiguous.
 
 - [ ] **Bad-password error is readable** — set a deliberately wrong password in `config.json`, restart, and check the log. Expect `Warmup API: invalid email or password (errorCode 101)`. A bare `Warmup API: {"result":"error"}` means the decoding regressed. Restore the correct password afterwards.
 - [ ] **Room added without a restart** — with Homebridge running, create a new room in the MyHeating app. Within one `refresh` interval (default 60 s) the log should show `Warmup room list changed — reconciling accessories` and `Adding <name>`, and the tile should appear in the Home app. **No restart.**
-- [ ] **Room removed without a restart** — delete that room again in the MyHeating app. Within one interval: `Removing stale accessory: <name>`, and the tile disappears.
+      *Needs a spare, unpaired thermostat: MyHeating will not create a room without pairing a device to it. Do **not** delete and re-add a real room to force this — that is live heating. If no spare hardware is available, skip and rely on the integration coverage noted in the release log.*
+- [ ] **Room removed without a restart** — delete that room again in the MyHeating app. Within one interval: `Removing stale accessory: <name>`, and the tile disappears. *(Same hardware caveat as above.)*
 - [ ] **No log/disk churn when nothing changes** — leave it idle for 5+ minutes. `Warmup room list changed` must appear **only** when you actually add or remove a room. Repeated occurrences mean the change detection is misfiring and Homebridge is rewriting its accessory cache every poll.
 - [ ] **Renaming still behaves as before** — rename a room in the Home app. It must *not* be reverted on the next poll (only on restart, as in previous versions). Reversion within a minute means the change detection is wrongly treating names as identity.
 - [ ] **Rapid successive setpoint changes land in order** — set 20 °C, wait ~2 s, set 24 °C, wait for the poll. **Read the setpoint in the Warmup app, not off the thermostat** (the device display shows ambient room temperature, not the target). It must end at **24 °C**; ending at 20 °C is the write-ordering race returning. Note this failure is *silent* — both writes succeed and nothing is logged — so the app reading is the only signal.
@@ -165,10 +166,25 @@ Reliability + hygiene patch. Staged on a clean tree; released SHA `2143764`.
 
 **Not run**
 
-- The §5b items still outstanding from v3.12.0: live room add/remove,
-  `disableHistory` memory saving, Eve history on the default path, the
-  decoded bad-password message, and the §2 Home-app visual smoke. None block
-  a patch release; carry them forward.
+- **Live room add/remove: blocked, not skipped.** MyHeating will not create a
+  room without pairing a thermostat to it, and no spare device is available.
+  Deleting and re-adding a real room was rejected as a test method — it is
+  live heating in an occupied house, and the coverage is not worth it.
+
+  Compensating coverage: four integration tests drive the same path through
+  the real platform code — room appears, room disappears, unchanged set does
+  *not* rewrite the accessory cache, and a transient empty response does not
+  tear out cached rooms. The first two were confirmed to **fail** against the
+  pre-fix code, so they are genuine regression tests rather than tautologies.
+
+  What that coverage does *not* reach, and what stays unverified until spare
+  hardware exists: that real Homebridge/HAP accepts the dynamic
+  register/unregister at runtime, and that the Home app tile actually appears
+  and disappears. The plugin-side logic is proven; the HAP-side integration
+  is inferred.
+- Still outstanding and *doable* without extra hardware: `disableHistory`
+  memory saving, Eve history on the default path, the decoded bad-password
+  message, and the §2 Home-app visual smoke.
 
 ---
 
