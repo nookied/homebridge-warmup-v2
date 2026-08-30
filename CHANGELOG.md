@@ -7,7 +7,36 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
-## [3.13.2] — unreleased
+## [3.13.2] — 2026-08-30
+
+### Fixed
+
+- **`disableHistory` was still advertising a cost that v3.13.1 had already
+  removed.** Vendoring deleted `googleapis` for every user, but three places
+  went on telling them it was there and that turning off Eve graphs would save
+  roughly 65 MB: the `config.schema.json` description — which is the text the
+  Homebridge UI shows at the moment someone decides whether to tick the box —
+  the README's config table, which contradicted the *Memory use* section a
+  screen below it, and the comment in `src/index.js`. The plugin was
+  recommending people give up a feature to avoid a cost it had already spent a
+  release removing on their behalf.
+
+  All three now describe what the option does today: skip a history service per
+  room, its timer, and the history files written periodically to the storage
+  directory — still worth having on a host running from an SD card. **No figure
+  is quoted**, because none has been measured since the change; `QA_TESTS.md`
+  carries the same correction, so the checklist no longer asks a tester to
+  confirm a 65 MB drop that can no longer happen.
+
+- **A broken bundled history copy now warns instead of whispering.**
+  `loadFakeGatoHistory()` logged a failed require at `debug` level. That was
+  the right level when the module was an optional npm dependency and a failure
+  described the user's environment. Now that it is vendored inside the plugin,
+  a failure can only mean our own copy or packaging is broken — and the symptom
+  is invisible, because Eve history simply stops while startup logs stay clean.
+  It is a `log.warn` now, emitted once per process however many accessories are
+  attached. The behaviour is covered by a test that fails if the warning is
+  removed.
 
 ### Changed
 

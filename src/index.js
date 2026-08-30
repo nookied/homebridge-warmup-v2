@@ -125,13 +125,24 @@ module.exports = function (homebridge) {
 // The module export is `(homebridge) => FakeGatoHistoryService` — a class
 // bound to the Homebridge instance's HAP types. Wrapped in try/catch so a
 // breakage here degrades to "no graphs" rather than killing the plugin.
-function loadFakeGatoHistory() {
+function loadFakeGatoHistory(log) {
   if (fakeGatoLoadAttempted) return FakeGatoHistoryService;
   fakeGatoLoadAttempted = true;
   try {
     FakeGatoHistoryService = require('./vendor/fakegato-history/fakegato-history')(homebridgeRef);
   } catch (ex) {
     FakeGatoHistoryService = null;
+    // Warn, don't whisper. Before v3.13.1 this was a missing optional npm
+    // dependency — a condition of the user's environment, fairly logged at
+    // debug. The module is now vendored inside this plugin, so the only way
+    // it fails to load is our own copy or packaging being broken, and the
+    // symptom is invisible: Eve graphs stop, the startup log looks clean.
+    // CI catches it in test/unit/vendored-fakegato.test.js; this is the
+    // field half of the same check.
+    if (log && typeof log.warn === 'function') {
+      log.warn('Eve history disabled: the bundled fakegato-history copy failed to load (%s). '
+        + 'Everything else works normally; please report this.', ex.message);
+    }
     debug('fakegato-history unavailable: %s', ex.message);
   }
   return FakeGatoHistoryService;
@@ -164,11 +175,13 @@ function warmup4iePlatform(log, config = {}, api) {
   // the standalone air-temp tile is the only way to see air temp).
   this.disableAirSensor = Boolean(config.disableAirSensor);
   // Skips the per-thermostat Eve history service entirely — and, because the
-  // load is deferred, avoids pulling `fakegato-history` (and the googleapis
-  // client it drags in) into the Homebridge process at all. Worth roughly
-  // 65 MB of RSS per Homebridge process, measured on a Pi 5; see
-  // loadFakeGatoHistory(). Only affects Eve.app's temperature/heating graphs
-  // — every HomeKit characteristic behaves identically either way.
+  // load is deferred, avoids requiring the bundled fakegato-history copy at
+  // all. The ~65 MB this used to save is no longer the point: v3.13.1
+  // vendored that copy with the googleapis backend removed, so every user
+  // gets the saving whether or not they set this. What it still skips is a
+  // history service per room, its timer and their periodic writes to the
+  // storage dir — worth having on an SD-card host. Only affects Eve.app's
+  // graphs; every HomeKit characteristic behaves identically either way.
   this.disableHistory = Boolean(config.disableHistory);
 
   // Runtime state — persists for the lifetime of this platform instance only.
@@ -537,10 +550,10 @@ function attachAccessoryServices(platform, accessory, room) {
   // The wrapper instance is in-memory only (re-created per restart) but
   // fakegato persists the history JSON to disk independently — see
   // `~/.homebridge/persist/history_*.json`.
-  // `disableHistory` is checked before loadFakeGatoHistory() so the module —
-  // and the googleapis client it pulls in — is never required at all.
+  // `disableHistory` is checked before loadFakeGatoHistory() so the bundled
+  // copy is never required at all.
   if (!platform.disableHistory && !accessory.historyService) {
-    const HistoryService = loadFakeGatoHistory();
+    const HistoryService = loadFakeGatoHistory(platform.log);
     if (HistoryService) {
       accessory.historyService = new HistoryService('thermo', accessory, {
         storage: 'fs',

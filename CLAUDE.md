@@ -285,7 +285,7 @@ Manual temperature changes go through `setTargetTemperature` → GraphQL `device
     "disableVacationSwitch": false,     // optional; hide location-wide Vacation Mode switch
     "disableFrostSwitch": false,        // optional; hide location-wide Frost Protection switch
     "disableAirSensor": false,          // optional; hide standalone air-temp sensor tile (air reading still on Thermostat.CurrentTemperature)
-    "disableHistory": false             // optional; skip Eve history — also avoids requiring fakegato/googleapis at all (~65 MB RSS, measured on a Pi 5)
+    "disableHistory": false             // optional; skip Eve history — a service, timer and periodic persist writes per room. The ~65 MB it used to save went into the baseline in 3.13.1 when fakegato was vendored; the remaining saving is small and unmeasured
   }]
 }
 ```

@@ -1159,6 +1159,42 @@ describe('warmup4ie dynamic platform', () => {
     platform.shutdown();
   });
 
+  test('a broken bundled history copy warns instead of failing silently', async () => {
+    // fakegato-history is vendored inside this plugin, so a failed require is
+    // our own packaging being wrong, not a missing optional dependency. Until
+    // v3.13.2 it logged at debug level: Eve graphs stopped and the startup log
+    // looked perfectly clean. The load is deferred to first use, so replacing
+    // the mock here — after the plugin module is already required — still
+    // takes effect.
+    jest.doMock('../../src/vendor/fakegato-history/fakegato-history', () => {
+      throw new Error('Unexpected end of input');
+    });
+
+    const log = fakeLog();
+    const platform = new PlatformCtor(
+      log, { username: 'one@example.com', password: 'p' }, api
+    );
+    api.emit('didFinishLaunching');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Degrades rather than crashing: the accessory is otherwise untouched.
+    const accessory = platform.accessories.get('UUID(warmup4ie:100001)');
+    expect(accessory).toBeDefined();
+    expect(accessory.historyService).toBeUndefined();
+    const thermo = accessory.getService(api.hap.Service.Thermostat);
+    expect(thermo.getCharacteristic(api.hap.Characteristic.CurrentTemperature).updateValue)
+      .toHaveBeenCalledWith(20);
+
+    // But it says so, at a level the user actually sees, and only once —
+    // the loader memoises, so N accessories must not mean N warnings.
+    const warnings = log.warn.mock.calls.map((args) => args.join(' '));
+    expect(warnings.filter((w) => /fakegato-history copy failed to load/.test(w))).toHaveLength(1);
+
+    platform.shutdown();
+  });
+
   test('a slow poll does not get a second one stacked on top of it', async () => {
     jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
     const platform = new PlatformCtor(

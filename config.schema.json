@@ -63,7 +63,7 @@
         "title": "Disable Eve history graphs",
         "type": "boolean",
         "default": false,
-        "description": "Turns off the per-thermostat temperature/heating-state history used by Eve.app. Worth enabling if you don't use Eve: the history library hard-depends on the Google APIs client and loads it on every start even though this plugin only stores history on disk — roughly 65 MB of memory per Homebridge process, measured on a Raspberry Pi 5. No HomeKit characteristic changes either way; only Eve's graphs are affected. Existing history files on disk are left alone."
+        "description": "Turns off the per-thermostat temperature/heating-state history used by Eve.app. If you don't use Eve there is little reason to keep it: it skips a history service per room, its timer, and the history files written periodically to the Homebridge storage directory — worth having on a host running from an SD card. No HomeKit characteristic changes either way; only Eve's graphs are affected, and existing history files on disk are left alone. (Before v3.13.1 this option also avoided loading a bundled Google APIs client, worth roughly 65 MB of memory. That dependency has since been removed for everyone, so the memory saving here is now small.)"
       },
       "disableAirSensor": {
         "title": "Hide standalone air-temp sensor",

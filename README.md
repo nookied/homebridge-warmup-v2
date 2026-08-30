@@ -87,7 +87,7 @@ Add a platform entry to your Homebridge `config.json`:
 | `disableChildLock` | no | `false` | Hide the per-thermostat **Lock** tile. Useful when the model doesn't honour the lock command (Warmup Element Wi-Fi appears to ignore it). Removes any cached lock services on next launch. |
 | `disableVacationSwitch` | no | `false` | Hide the location-wide **Vacation Mode** switch. Removes the cached accessory on next launch. |
 | `disableFrostSwitch` | no | `false` | Hide the location-wide **Frost Protection** switch. Removes the cached accessory on next launch. |
-| `disableHistory` | no | `false` | Turn off the Eve.app history graphs. **Worth enabling if you don't use Eve** — see [Memory use](#memory-use) below; measured at roughly **65 MB of RAM** saved per Homebridge process. No HomeKit characteristic changes either way. |
+| `disableHistory` | no | `false` | Turn off the Eve.app history graphs. **Worth enabling if you don't use Eve** — it skips a history service per room, its timer, and the history files written periodically to the Homebridge storage directory, which is worth having on an SD-card host. See [Memory use](#memory-use) below. No HomeKit characteristic changes either way. |
 | `disableAirSensor` | no | `false` | Hide the standalone **"Air"** temperature-sensor tile. See [Which temperature am I looking at?](#which-temperature-am-i-looking-at) — if your thermostat is in **air** mode the tile duplicates the Thermostat exactly and you can safely turn it off; in **floor** mode it is the only place to see air temperature. Removes any cached air-sensor services on next launch. |
 
 ### Which temperature am I looking at?
