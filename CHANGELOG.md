@@ -7,7 +7,20 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
-## [3.13.1] — unreleased
+## [3.13.1] — 2026-08-30
+
+### Added
+
+- **[Verified by Homebridge](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
+  badge in the README.** Verified on 2026-08-30 via
+  [homebridge/plugins#1195](https://github.com/homebridge/plugins/issues/1195);
+  the plugin is listed in that repo's `verified-plugins.json`. The two
+  automated findings raised when the request was filed — a missing
+  `supports-hap` keyword and `"required": true` on individual schema
+  properties — were fixed in v3.12.1. The human review pass ran against
+  v3.13.0 and asked for no changes; its only suggestion was to release the
+  vendored `fakegato-history` below, which was already staged and held back
+  precisely so it would not land mid-review.
 
 ### Changed
 
@@ -22,7 +35,7 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
   | packages installed | 97 | 4 |
   | runtime dependencies | `debug`, `fakegato-history` (→ `googleapis`) | `debug` |
   | require cost | 115.0 MB / 804 ms / 1086 modules | 4.1 MB / 4 ms / 3 modules |
-  | published tarball | 67.8 kB | 77.5 kB |
+  | published tarball | 67.8 kB | 78.3 kB |
 
   This closes a known issue that had been mitigated but not solved since
   v3.12.0. The fix itself was always about five lines; the obstacle was that

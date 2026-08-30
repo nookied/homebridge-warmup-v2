@@ -153,7 +153,7 @@ If any item failed, do **not** tag. File an issue in the repo, fix on the branch
 Keep the checklist above blank and reusable; record each release's actual
 result here, including what was *not* run.
 
-### v3.13.1 — 2026-08-28 (unreleased; field-verified)
+### v3.13.1 — 2026-08-30 (field-verified on 2026-08-28)
 
 Vendored `fakegato-history`, Google Drive backend removed. Tested by packing
 the tarball and installing it on the live Pi 5 — i.e. exactly what a user
@@ -188,14 +188,25 @@ carries HAP, the plugin and its own runtime regardless. The saving is real
 (~60 MB, consistent with the earlier `disableHistory` measurement) but the
 floor is higher than that figure implied. Quote the in-situ number.
 
-**Still to do before release**
+**Test gate — 2026-08-30**
 
-- Bump to 3.13.1 (`package.json` still says 3.13.0; the Pi is running a
-  tarball built from that).
-- Live API test — unchanged wire protocol since 3.13.0, so low risk, but the
-  release checklist asks for it.
-- Hold the tag until the Verified badge lands: vendored third-party code is
-  worth not introducing mid-review.
+- `npm run lint` clean, `npm run smoke` loads, 156 offline tests pass.
+- **Live API test: 158 passed / 1 skipped** against the real account, run from
+  the vendored tree.
+
+The live run re-confirms rather than probes: the wire protocol is byte-identical
+to 3.13.0, since vendoring touched `src/index.js` and `src/vendor/` and left
+`src/lib/warmup4ie.js` alone. It was run anyway because the checklist asks for
+it and it costs one command — and because "the query didn't change" is exactly
+the assumption that would hide a change to the query.
+
+**The hold is spent**
+
+The tag was held so vendored third-party code would not land mid-review. The
+Verified badge arrived on 2026-08-30 ([homebridge/plugins#1195](https://github.com/homebridge/plugins/issues/1195)),
+and the reviewer's one piece of feedback was to ship this exact change — it
+drops `googleapis` from the install, which matters most on the small hosts
+this plugin runs on. So the reason for waiting resolved into a reason to go.
 
 ---
 

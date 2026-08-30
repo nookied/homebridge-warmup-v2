@@ -1,5 +1,6 @@
 # homebridge-warmup4ie-v2
 
+[![verified-by-homebridge](https://img.shields.io/badge/homebridge-verified-blueviolet?color=%23491F59&style=flat)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
 [![npm](https://img.shields.io/npm/v/homebridge-warmup4ie-v2.svg)](https://www.npmjs.com/package/homebridge-warmup4ie-v2)
 [![Apache 2.0](https://img.shields.io/npm/l/homebridge-warmup4ie-v2.svg)](LICENSE)
 

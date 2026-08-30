@@ -19,9 +19,9 @@ Everything else is incremental polish on top of those three.
 
 ---
 
-## Where we are today (v3.12.0 released; v3.12.1 pending)
+## Where we are today (v3.13.1)
 
-✅ GraphQL transport, per-room hard-off, explicit override duration in minutes, native fetch transport, token refresh, surfaced HAP errors, debounced HomeKit writes, config UI schema, full offline test suite, opt-in live tests, CI on Node 22/24/26, tag-driven npm publish with provenance via OIDC trusted publishing (no npm token), Apache-2.0 LICENSE, README + CHANGELOG + QA_TESTS, fork-isolated from upstream.
+✅ **Homebridge Verified** (2026-08-30). GraphQL transport, per-room hard-off, explicit override duration in minutes, native fetch transport, token refresh, surfaced HAP errors, debounced HomeKit writes, config UI schema, labelled secondary temperature reading, full offline test suite, opt-in live tests, CI on Node 22/24/26, tag-driven npm publish with provenance via OIDC trusted publishing (no npm token), Apache-2.0 LICENSE, README + CHANGELOG + QA_TESTS, fork-isolated from upstream, and a single runtime dependency (`debug`) since `fakegato-history` was vendored in v3.13.1.
 
 ⚠️ Single-location operation, generic model metadata, and no surfaced cost history remain. Heating state now prefers Warmup's relay/output signal with temperature-delta inference only as a fallback.
 
@@ -36,7 +36,7 @@ Source: [`homebridge/plugins` requirements](https://github.com/homebridge/plugin
 | 1 | Dynamic platform plugin | ✅ | Shipped in v3.1.0 (Milestone 4). |
 | 2 | Doesn't duplicate an existing verified plugin | ✅ | None |
 | 3 | Published to npm with source on GitHub, issues enabled | ✅ | None |
-| 4 | A GitHub release per new version with notes | 🟡 | Auto-created by `release.yml` going forward |
+| 4 | A GitHub release per new version with notes | ✅ | Auto-created by `release.yml`; confirmed at review. |
 | 5 | Runs on supported LTS Node versions | ✅ | CI covers the package's declared range (22 / 24 / 26), which matches Homebridge 2.4's own `engines`. Raised in v3.12.0: Node 18 and 20 are EOL. |
 | 6 | Installs successfully and doesn't start unless configured | ✅ | None |
 | 7 | No TTY / non-standard startup parameters | ✅ | None |
@@ -45,7 +45,7 @@ Source: [`homebridge/plugins` requirements](https://github.com/homebridge/plugin
 | 10 | Files stored under HB storage dir | ✅ | fakegato history is written under `api.user.storagePath()` (since v3.2), which is the Homebridge storage dir. The plugin writes nothing outside it. |
 | 11 | Catches and logs own errors, no unhandled exceptions | ✅ | Missing config and bootstrap failure now return no accessories and do not start polling. |
 
-**All requirements met as of v3.1.0.** Verified-Plugin application is queued as Milestone 7 — wait for a few weeks of stability + a couple of installs first, then file via the standard `homebridge/plugins` issue template.
+**All requirements met as of v3.1.0. Verified on 2026-08-30** via [homebridge/plugins#1195](https://github.com/homebridge/plugins/issues/1195) — see Milestone 7. The table above is no longer a to-do list: it is the standard the plugin is now held to.
 
 ---
 
@@ -275,7 +275,7 @@ dual-probe device, so the "Floor" path is covered by offline tests only.
 
 ---
 
-### Milestone 7 — Verified Plugin application
+### ✅ Milestone 7 — Verified Plugin application — SHIPPED
 
 **Goal:** Open an issue at [`homebridge/plugins`](https://github.com/homebridge/plugins/issues/new/choose) using the verification template.
 
@@ -291,7 +291,30 @@ dual-probe device, so the "Floor" path is covered by offline tests only.
 - Address each comment via PR.
 - Once approved, the plugin gets a Verified badge in the HB UI plugin browser and ranks higher in search.
 
-**Effort:** ~30 min for the initial application, plus iteration on reviewer feedback (typically 1–2 small PRs).
+**Verified 2026-08-30.** [homebridge/plugins#1195](https://github.com/homebridge/plugins/issues/1195),
+filed 2026-08-28, closed with the `verified` label under 48 hours later.
+`homebridge-warmup4ie-v2` is now listed in that repo's `verified-plugins.json`,
+and the badge is in the README.
+
+What actually happened, against the process sketched above:
+
+- **No reviewer PRs were needed.** Every finding came from the automated
+  checker, on its first run a minute after filing: `keywords` did not
+  declare `supports-hap`, and `config.schema.json` carried `"required": true`
+  on three properties, which is not valid JSON Schema. Both were fixed and
+  released as v3.12.1 the same afternoon — the re-run was green eleven minutes
+  after filing.
+- **The human pass ran two days later, against v3.13.0**, re-ran the checker
+  and closed it. The reviewer's feedback was one suggestion rather than a
+  change request: cut a release with the vendored `fakegato-history`, since it
+  drops `googleapis` from the install and that matters most on the small hosts
+  this plugin usually runs on.
+- **That release was already staged and deliberately held** — vendored
+  third-party code is not something to introduce mid-review. The hold is now
+  spent; see the v3.13.1 entry in `QA_TESTS.md`.
+
+**Effort:** ~30 min to file, ~10 min of fixes. No iteration PRs, contrary to
+the estimate above.
 
 ---
 
