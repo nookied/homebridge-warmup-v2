@@ -190,9 +190,17 @@ floor is higher than that figure implied. Quote the in-situ number.
 
 **Test gate — 2026-08-30**
 
-- `npm run lint` clean, `npm run smoke` loads, 156 offline tests pass.
+- `npm run lint` clean, `npm run smoke` loads, 163 offline tests pass.
 - **Live API test: 158 passed / 1 skipped** against the real account, run from
   the vendored tree.
+- **Shipped-artifact check.** Packed the 3.13.1 tarball, installed it into an
+  empty tree with `--omit=dev`, and drove the vendored module from there: the
+  install tree is `debug`, `ms` and the plugin; the factory loads; the fs
+  round-trip is byte-intact; `lib/googleDrive.js` is absent and no Google
+  module is ever loaded.
+- **The new guard test was mutation-checked** — appending a syntax error to
+  `fakegato-history.js` turns it red, so it guards something rather than
+  merely passing.
 
 The live run re-confirms rather than probes: the wire protocol is byte-identical
 to 3.13.0, since vendoring touched `src/index.js` and `src/vendor/` and left

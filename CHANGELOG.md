@@ -22,6 +22,22 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
   vendored `fakegato-history` below, which was already staged and held back
   precisely so it would not land mid-review.
 
+- **The vendored copy now has CI coverage.**
+  `test/unit/vendored-fakegato.test.js` loads the factory the way
+  `src/index.js` does, drives an fs write/read round-trip through
+  `fakegato-storage.js` — the one file the Drive removal actually edited — and
+  asserts the removed backend stays unreachable, both in source and at
+  runtime.
+
+  Until now nothing in CI touched those files: `eslint.config.mjs` ignores the
+  directory so the copy stays diffable against upstream, and
+  `platform-state.test.js` mocks the module because the real one writes to
+  disk. A broken copy would therefore have passed every automated check and
+  then failed *silently* in the field, because `loadFakeGatoHistory()` catches
+  a failed require and logs it at debug level — a clean startup log, and no
+  Eve history. Vendoring created that blind spot; this closes it. 163 offline
+  tests now pass, up from 156.
+
 ### Changed
 
 - **`fakegato-history` is vendored; `googleapis` is gone.** The four files this
@@ -35,7 +51,7 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
   | packages installed | 97 | 4 |
   | runtime dependencies | `debug`, `fakegato-history` (→ `googleapis`) | `debug` |
   | require cost | 115.0 MB / 804 ms / 1086 modules | 4.1 MB / 4 ms / 3 modules |
-  | published tarball | 67.8 kB | 78.3 kB |
+  | published tarball | 67.8 kB | 78.6 kB |
 
   This closes a known issue that had been mitigated but not solved since
   v3.12.0. The fix itself was always about five lines; the obstacle was that
