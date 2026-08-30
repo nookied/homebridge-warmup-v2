@@ -7,6 +7,32 @@ This package is a maintained fork of [`homebridge-warmup4ie`](https://github.com
 
 ---
 
+## [3.13.2] — unreleased
+
+### Changed
+
+- **Attribution strengthened now that this is no longer a GitHub fork.**
+  Leaving the fork network on 2026-08-30 removed the "forked from" banner,
+  which was the lineage's only appearance in GitHub's own UI. What remains is
+  what the repository says itself, so it now carries the weight:
+
+  - A `NOTICE` file — Apache-2.0's conventional vehicle for this, and it ships
+    in the npm tarball — naming NorthernMan54's copyright on the original and
+    simont77's on the vendored `fakegato-history`.
+  - Provenance headers on `src/index.js` and `src/lib/warmup4ie.js`, the two
+    files descending most directly from the original. The vendored third-party
+    code already carried per-file headers, so copied code was better labelled
+    than the code this plugin grew out of; that asymmetry is now gone.
+  - The README says what the original actually contributed — the API
+    reverse-engineering and the room-to-Thermostat mapping still in use — rather
+    than only how it broke. Credits gains simont77, whose code ships inside this
+    plugin rather than merely being depended on, and jondarrer, whose
+    introspected schema made the v3 GraphQL rewrite possible.
+
+  No functional change; the published 3.13.1 artefact is unaffected.
+
+---
+
 ## [3.13.1] — 2026-08-30
 
 ### Added

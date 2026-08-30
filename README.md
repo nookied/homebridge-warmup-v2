@@ -10,6 +10,8 @@ Despite the legacy name (the original plugin was authored in 2019 when the 4iE w
 
 This is a **maintained fork** of [`homebridge-warmup4ie`](https://github.com/NorthernMan54/homebridge-warmup4ie) (NorthernMan54), which became broken at version 0.1.0–0.1.1 in late 2024 and has not been updated since. The original silently rejected the `Off` HomeKit command (location turn-off API was sending the wrong body) and overrode temperatures in UTC instead of local time. This fork restores the working behaviour, replaces the deprecated `request` HTTP library with native `fetch`, and adds a real test suite.
 
+That plugin is the reason this one exists. [NorthernMan54](https://github.com/NorthernMan54) reverse-engineered the Warmup cloud API in 2019, worked out the room-to-Thermostat mapping this plugin still uses, and maintained it for five years. The regressions described above are why the fork was made — they are not a verdict on the work they broke. This repository's git history begins with those commits and keeps them intact, and the Apache-2.0 licence and copyright are carried forward in [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
 If you have `homebridge-warmup4ie` installed, **uninstall it first** before installing this package — see [Migration](#migration) below.
 
 ## Supported thermostats
@@ -273,9 +275,11 @@ Releases are tag-driven: `npm version patch && git push --follow-tags` triggers 
 
 ## License
 
-[Apache 2.0](LICENSE). Copyright 2019–2024 NorthernMan54 (original) + 2026 Karol Nowacki (this fork). The Apache-2.0 license is preserved from the original.
+[Apache 2.0](LICENSE), preserved from the original. Copyright 2019–2024 NorthernMan54 (original `homebridge-warmup4ie`) and 2026 Karol Nowacki (this fork). Attribution for both, and for the vendored copy of `fakegato-history`, is in [NOTICE](NOTICE).
 
 ## Credits
 
-- **NorthernMan54** — original `homebridge-warmup4ie` (2019), the basis for this fork.
-- **alex-0103** — [`warmup4IE`](https://github.com/alex-0103/warmup4IE) Python reference implementation, the source of truth for the Warmup cloud API wire format.
+- **[NorthernMan54](https://github.com/NorthernMan54)** — author of the original [`homebridge-warmup4ie`](https://github.com/NorthernMan54/homebridge-warmup4ie), maintained 2019–2024. They reverse-engineered the Warmup cloud API, established the room-to-Thermostat mapping this plugin still uses, and their commits are the base of this repository's history. Everything here builds on that work.
+- **[simont77](https://github.com/simont77)** — [`fakegato-history`](https://github.com/simont77/fakegato-history), which provides the Eve history graphs. A copy of it ships inside this plugin (`src/vendor/fakegato-history/`, MIT, with the Google Drive backend removed), so it is not merely a dependency — it is their code running in your Homebridge.
+- **[alex-0103](https://github.com/alex-0103)** — [`warmup4IE`](https://github.com/alex-0103/warmup4IE) Python reference implementation, the source of truth for the Warmup cloud API wire format.
+- **[jondarrer](https://github.com/jondarrer)** — [`warmup-api`](https://github.com/jondarrer/warmup-api), whose introspected GraphQL schema made the v3 transport rewrite possible.

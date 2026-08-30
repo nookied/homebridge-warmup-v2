@@ -21,6 +21,7 @@ This file is the canonical persistent memory for this project. Any assistant/age
 - This is a **maintained fork published to npm under a distinct name** (`homebridge-warmup4ie-v2`). The original (`homebridge-warmup4ie`) is unaffected and still on npm at 0.1.1.
 - The HomeKit *platform identifier* in users' `config.json` stays `"platform": "warmup4ie"` for migration compatibility — only the npm package name differs.
 - The `upstream` git remote is **intentionally not configured**. Do not re-add it. Do not open PRs against `NorthernMan54/homebridge-warmup4ie`. (It was found configured *and fetched* on 2026-08-30 and removed again — during a release, a stray remote is one mistyped push away from being someone else's problem.)
+- **Attribution is load-bearing, and lives in four places:** `LICENSE` (both copyright lines, filled into the Apache appendix — note the original repo never filled in its own), `NOTICE` (ships in the tarball; covers NorthernMan54 and simont77), per-file provenance headers on `src/index.js`, `src/lib/warmup4ie.js` and every vendored file, and the README's intro plus Credits. Keep all four in step. This matters more since the fork banner went away: GitHub no longer states the lineage anywhere, so the repository has to.
 - **The GitHub repository is standalone, not a fork.** Detached from `NorthernMan54/homebridge-warmup4ie` on 2026-08-30 via Settings → General → "Leave fork network". GitHub excludes forks from search by default, so the fork banner cost discoverability for a just-Verified plugin while granting only the ability to open PRs upstream — impossible now (that repo is archived) and forbidden by working rule 7 regardless. Stars, issues, releases and tags were retained; `repository.url` did not change, so npm provenance and the trusted-publisher config are untouched. **Do not re-fork it.** Describing the project as a "maintained fork" in prose stays correct and is deliberate: the code does descend from that plugin, and the credit belongs in `LICENSE`, the README and the CHANGELOG rather than in a GitHub UI label.
 - CI runs lint + tests + smoke on Node 22/24/26 for every push (`.github/workflows/ci.yml`). Releases are tag-driven: `npm version patch|minor|major && git push --follow-tags` triggers `release.yml`, which publishes to npm with provenance and creates a GitHub Release.
 - **`package.json` `repository.url` MUST exactly match the GitHub repo URL** (`https://github.com/nookied/homebridge-warmup-v2.git`). npm's sigstore provenance is strict — a mismatch causes `npm publish` to fail with HTTP 422. We hit this twice during repo renames — see CHANGELOG entries for v2.0.x and v3.10.2.
@@ -449,7 +450,8 @@ This fork starts at **2.0.0** as a tribute to the original v1.x lineage. From th
 | `eslint.config.mjs` | ESLint v9 flat config |
 | `package.json` | Package metadata, scripts, deps |
 | `config.schema.json` | Homebridge UI form-based config editor |
-| `LICENSE` | Apache-2.0 |
+| `LICENSE` | Apache-2.0, with both copyright lines filled into the appendix |
+| `NOTICE` | Attribution for the original plugin (NorthernMan54) and the vendored `fakegato-history` (simont77). Ships in the npm tarball. |
 | `README.md` | User-facing docs (install, config, supported models, migration) |
 | `QA_TESTS.md` | Manual pre-release checklist |
 | `CHANGELOG.md` | Release history (Keep a Changelog) |

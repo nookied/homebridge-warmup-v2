@@ -1,3 +1,14 @@
+// ---------------------------------------------------------------------------
+// Part of homebridge-warmup4ie-v2 — a maintained fork of homebridge-warmup4ie
+// (https://github.com/NorthernMan54/homebridge-warmup4ie), whose commits are
+// preserved in this repository's history.
+//
+// Copyright 2019-2024 NorthernMan54  — original homebridge-warmup4ie
+// Copyright 2026 Karol Nowacki       — this fork
+//
+// Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE.
+// ---------------------------------------------------------------------------
+
 'use strict';
 
 // Warmup cloud API client.

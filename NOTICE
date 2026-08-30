@@ -1,0 +1,22 @@
+homebridge-warmup4ie-v2
+Copyright 2026 Karol Nowacki
+
+This product is a maintained fork of, and includes software developed as,
+homebridge-warmup4ie:
+
+    https://github.com/NorthernMan54/homebridge-warmup4ie
+    Copyright 2019-2024 NorthernMan54
+    Licensed under the Apache License, Version 2.0
+
+That project reverse-engineered the Warmup cloud API, established the
+room-to-HomeKit-Thermostat mapping this plugin still uses, and was maintained
+from 2019 to 2024. This fork continues it under the same licence; the git
+history here begins with those commits and they are preserved intact.
+
+This distribution also contains a vendored copy of fakegato-history, with the
+Google Drive storage backend removed:
+
+    https://github.com/simont77/fakegato-history
+    Copyright (c) 2017 simont77
+    Licensed under the MIT License
+    Full licence text: src/vendor/fakegato-history/LICENSE
